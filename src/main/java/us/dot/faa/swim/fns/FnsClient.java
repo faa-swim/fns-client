@@ -1,7 +1,10 @@
 package us.dot.faa.swim.fns;
 
 import java.io.File;
+import java.io.IOException;
+import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -12,11 +15,14 @@ import java.util.stream.Collectors;
 import javax.jms.ExceptionListener;
 import javax.jms.JMSException;
 import javax.jms.Session;
+import javax.xml.parsers.ParserConfigurationException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.xml.sax.SAXException;
 
 import com.jcraft.jsch.JSchException;
+import com.jcraft.jsch.SftpException;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import com.typesafe.config.ConfigList;
@@ -44,9 +50,9 @@ public class FnsClient implements ExceptionListener {
 		final FnsClient fnsClient = new FnsClient();
 		filClient = new FilClient(config.getString("fil.sftp.host"), config.getString("fil.sftp.username"),
 				config.getString("fil.sftp.certFilePath"));
-		
+
 		filClient.setFilFileSavePath("");
-		
+
 		try {
 			fnsClient.start();
 		} catch (InterruptedException e) {
@@ -128,9 +134,8 @@ public class FnsClient implements ExceptionListener {
 					logger.info("Performing database validation check against FIL");
 					try {
 						validateDatabase();
-					} catch (JSchException jsche) {
-						logger.error(
-								"Failed to validate database due to: " + jsche.getMessage() + ", Closing", jsche);
+					} catch (Exception jsche) {
+						logger.error("Failed to validate database due to: " + jsche.getMessage() + ", Closing", jsche);
 					}
 
 					logger.info("Removing old NOTAMS from database");
@@ -169,8 +174,8 @@ public class FnsClient implements ExceptionListener {
 		while (!jmsConsumerStarted) {
 			try {
 				jmsClient = new JmsClient(jndiProperties);
-				jmsClient.connect(jmsConnectionFactoryName, this);				
-				jmsClient.createConsumer(jmsQueueName, fnsJmsMessageProcessor, Session.AUTO_ACKNOWLEDGE);				
+				jmsClient.connect(jmsConnectionFactoryName, this);
+				jmsClient.createConsumer(jmsQueueName, fnsJmsMessageProcessor, Session.AUTO_ACKNOWLEDGE);
 
 				jmsConsumerStarted = true;
 
@@ -194,7 +199,7 @@ public class FnsClient implements ExceptionListener {
 		while (!successful) {
 			try {
 				filClient.connectToFil();
-				NotamDb.initalizeNotamDb(filClient.getFnsInitialLoad());				
+				NotamDb.initalizeNotamDb(filClient.getFnsInitialLoad());
 				successful = true;
 			} catch (Exception e) {
 				logger.error("Failed to Initialized NotamDb due to: " + e.getMessage(), e);
@@ -209,33 +214,30 @@ public class FnsClient implements ExceptionListener {
 		}
 	}
 
-	private void validateDatabase() throws JSchException
-	{
-		filClient.connectToFil();
-		lastValidationCheckTime = Instant.now();
+	private void validateDatabase() throws Exception {
 		try {
+			filClient.connectToFil();
+			lastValidationCheckTime = Instant.now();
 
 			Map<String, Timestamp> missMatchedMap = NotamDb.validateDatabase(filClient.getFnsInitialLoad());
 			if (!missMatchedMap.isEmpty()) {
 				logger.warn("Validation with Notam Database Failed");
 
-				String missMatches = missMatchedMap.keySet().stream()
-						.map(key -> key + ":" + missMatchedMap.get(key))
+				String missMatches = missMatchedMap.keySet().stream().map(key -> key + ":" + missMatchedMap.get(key))
 						.collect(Collectors.joining(", ", "{", "}"));
 
 				logger.debug("Missing NOTAMs: " + missMatches);
 			} else {
 				logger.info("Database validated against FIL");
 			}
-		} catch (Exception e) {
-			logger.error("Failed to validate database with FIL due to: " + e.getMessage(), e);
-		}
-		finally
-		{
+		} catch (SQLException | ParserConfigurationException | IOException | SAXException | SftpException
+				| ParseException | InterruptedException e) {
+			throw e;
+		} finally {
 			filClient.close();
 		}
 	}
-	
+
 	public void stop() {
 		isRunning = false;
 	}
@@ -247,7 +249,8 @@ public class FnsClient implements ExceptionListener {
 			jmsClient.close();
 		} catch (final Exception e1) {
 			logger.error(
-					"Failed to JmsClient JmsClient due to : " + e1.getMessage() + ". Continuing with JmsClient Restart", e1);
+					"Failed to JmsClient JmsClient due to : " + e1.getMessage() + ". Continuing with JmsClient Restart",
+					e1);
 		}
 
 		connectJmsClient();
