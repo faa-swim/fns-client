@@ -40,6 +40,7 @@ public class FnsClient implements ExceptionListener {
 	private static Config config;
 	private static boolean isRunning;
 	private static Instant lastValidationCheckTime = Instant.now();
+	private static int databaseValidationRetryCount = 3;
 
 	public static void main(final String[] args) throws InterruptedException {
 
@@ -133,9 +134,17 @@ public class FnsClient implements ExceptionListener {
 
 					logger.info("Performing database validation check against FIL");
 					try {
-						validateDatabase();
-					} catch (Exception jsche) {
-						logger.error("Failed to validate database due to: " + jsche.getMessage() + ", Closing", jsche);
+
+						if (validateDatabase()) {
+							logger.info("Database validated against FIL");
+						} else {
+							logger.warn("Validation with Notam Database Failed, setting NotamDB to invalid");
+							NotamDb.setInvalid();
+						}
+
+					} catch (Exception e) {
+						logger.error("Failed to validate database due to: " + e.getMessage() + ", setting NotamDB to invalid", e);
+						NotamDb.setInvalid();
 					}
 
 					logger.info("Removing old NOTAMS from database");
@@ -214,21 +223,21 @@ public class FnsClient implements ExceptionListener {
 		}
 	}
 
-	private void validateDatabase() throws Exception {
+	private boolean validateDatabase() throws Exception {
 		try {
 			filClient.connectToFil();
 			lastValidationCheckTime = Instant.now();
 
 			Map<String, Timestamp> missMatchedMap = NotamDb.validateDatabase(filClient.getFnsInitialLoad());
 			if (!missMatchedMap.isEmpty()) {
-				logger.warn("Validation with Notam Database Failed");
 
 				String missMatches = missMatchedMap.keySet().stream().map(key -> key + ":" + missMatchedMap.get(key))
 						.collect(Collectors.joining(", ", "{", "}"));
 
 				logger.debug("Missing NOTAMs: " + missMatches);
+				return false;
 			} else {
-				logger.info("Database validated against FIL");
+				return false;
 			}
 		} catch (SQLException | ParserConfigurationException | IOException | SAXException | SftpException
 				| ParseException | InterruptedException e) {
