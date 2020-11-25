@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <title>NOTAM Viewer</title>
+  <!-- Required meta tags -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+  <!-- Bootstrap CSS -->
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+    integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+</head>
+
+<body>
+  <nav class="navbar navbar-collapse navbar-dark bg-dark">
+    <div class="container-fluid">
+      <div class="nav navbar-nav">
+        <a class="nav-item nav-link active">NOTAM Viewer <span class="sr-only">(current)</span></a>
+      </div>
+  </nav>
+  <div class="container-fluid bg-light" style="height:100vh;">
+    <div class="row container-fluid">
+      <div class="col-xs-1-2">
+        <div class="form-group">
+          <label for="Location Designator"></label>
+          <input type="text" class="form-control" name="" id="locationDesignator" aria-describedby="helpId"
+            placeholder="Location Designator">
+        </div>
+      </div>
+      <div class="col-xs-1-2">
+        <a style="margin-top: 25px; margin-left: 25px;" name="getNotams" id="getNotams" class="btn btn-success"
+          role="button">Get Notams</a>
+      </div>
+      <div class="col-xs-1-4">
+        <div class="btn-group" id="notamTypeFilter" style="margin-top: 25px; margin-left: 25px;">
+          <button type="button" id="filterForALL" class="btn btn-primary active">ALL</button>
+          <button type="button" id="filterForDOM" class="btn btn-primary">DOM</button>
+          <button type="button" id="filterForINTL" class="btn btn-primary">INTL</button>
+          <button type="button" id="filterForFDC" class="btn btn-primary">FDC</button>
+          <button type="button" id="filterForMIL" class="btn btn-primary">MIL</button>
+        </div>
+      </div>      
+      <div class="col-xs-2">
+        <a style="margin-top: 25px; margin-left: 25px;" id="download-csv" class="btn btn-success" role="button">Download
+          CSV</a>
+      </div>
+    </div>
+    <div class="row container-fluid">
+      <div id="notamTable"></div>
+    </div>
+  </div>
+  <!-- Optional JavaScript -->
+  <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+  <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+    integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous">
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"
+    integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous">
+  </script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"
+    integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous">
+  </script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <link href="https://unpkg.com/tabulator-tables@4.2.7/dist/css/tabulator.min.css" rel="stylesheet">
+  <script type="text/javascript" src="https://unpkg.com/tabulator-tables@4.2.7/dist/js/tabulator.min.js"></script>
+  <script src="jsonpath.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.26.0/moment.min.js"></script>
+  <script>
+    $(document).ready(function () {
+
+      var table = new Tabulator("#notamTable", {
+        layout: "fitData",        
+        columns: [{
+            title: "NOTAM ID",
+            field: "id"
+          },
+          {
+            title: "Classification",
+            field: "classification",
+          },
+          {
+            title: "Issued",
+            field: "issued"
+          },
+          {
+            title: "Last Updated",
+            field: "lastUpdated",
+          },
+          {
+            title: "Affected FIR",
+            field: "affectedFIR",
+          },
+          {
+            title: "Location",
+            field: "location"
+          },
+          {
+            title: "Effective Start",
+            field: "effectiveStart",
+            formatter: "datetime",
+            formatterParams: {
+              inputFormat: "YYYYMMDD HH:mm",
+              outputFormat: "MM/DD/YYYY HH:mm",
+              invalidPlaceholder: "(invalid date)",
+            }
+          },
+          {
+            title: "Effective End",
+            field: "effectiveEnd",
+            formatter: "datetime",
+            formatterParams: {
+              inputFormat: "YYYYMMDD HH:mm",
+              outputFormat: "MM/DD/YYYY HH:mm",
+              invalidPlaceholder: "Permanent",
+            }
+          },
+          {
+            title: "Text",
+            field: "text",
+            formatter: "textarea"
+          },
+        ],
+      });
+
+      //trigger AJAX load on "Load Data via AJAX" button click
+      document.getElementById("getNotams").addEventListener("click", function () {
+        var locationDesignator = $("#locationDesignator").val();
+        table.setData("locationDesignator/" + locationDesignator + "?responseFormat=notamTable");
+      });
+
+      //trigger filter for ALL
+      document.getElementById("filterForALL").addEventListener("click", function (o) {
+        $("#filterForALL").addClass("active");
+        $("#filterForDOM").removeClass("active");
+        $("#filterForINTL").removeClass("active");
+        $("#filterForFDC").removeClass("active");
+        $("#filterForMIL").removeClass("active");
+        table.clearFilter();
+      });
+
+      //trigger filter for DOM
+      document.getElementById("filterForDOM").addEventListener("click", function (o) {
+        $("#filterForALL").removeClass("active");
+        $("#filterForDOM").addClass("active");
+        $("#filterForINTL").removeClass("active");
+        $("#filterForFDC").removeClass("active");
+        $("#filterForMIL").removeClass("active");
+        table.setFilter("classification", "=", "DOM");
+
+      });
+
+      //trigger filter for INTL
+      document.getElementById("filterForINTL").addEventListener("click", function (o) {
+        $("#filterForALL").removeClass("active");
+        $("#filterForDOM").removeClass("active");
+        $("#filterForINTL").addClass("active");
+        $("#filterForFDC").removeClass("active");
+        $("#filterForMIL").removeClass("active");
+        table.setFilter("classification", "=", "INTL");
+      });
+
+      //trigger filter for FDC
+      document.getElementById("filterForFDC").addEventListener("click", function (o) {
+        $("#filterForALL").removeClass("active");
+        $("#filterForDOM").removeClass("active");
+        $("#filterForINTL").removeClass("active");
+        $("#filterForFDC").addClass("active");
+        $("#filterForMIL").removeClass("active");
+        table.setFilter("classification", "=", "FDC");
+      });
+
+      //trigger filter for MIL
+      document.getElementById("filterForMIL").addEventListener("click", function (o) {
+        $("#filterForALL").removeClass("active");
+        $("#filterForDOM").removeClass("active");
+        $("#filterForINTL").removeClass("active");
+        $("#filterForFDC").removeClass("active");
+        $("#filterForMIL").addClass("active");
+        table.setFilter("classification", "like", "MIL");
+      });
+
+      //trigger download of data.csv file
+      document.getElementById("download-csv").addEventListener("click", function () {
+        table.download("csv", "data.csv");
+      });
+
+    });
+  </script>
+</body>
+
+</html>
