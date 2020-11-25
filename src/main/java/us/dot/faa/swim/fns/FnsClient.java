@@ -16,6 +16,7 @@ import javax.jms.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.jcraft.jsch.JSchException;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import com.typesafe.config.ConfigList;
@@ -32,6 +33,7 @@ public class FnsClient implements ExceptionListener {
 	private static String jmsQueueName = "";
 	private static Config config;
 	private static boolean isRunning;
+	private static Instant lastValidationCheckTime = Instant.now();
 
 	public static void main(final String[] args) throws InterruptedException {
 
@@ -82,7 +84,6 @@ public class FnsClient implements ExceptionListener {
 
 		isRunning = true;
 
-		Instant lastValidationCheckTime = Instant.now();
 		while (isRunning) {
 			Thread.sleep(10 * 1000);
 
@@ -125,23 +126,11 @@ public class FnsClient implements ExceptionListener {
 						.atZone(ZoneId.systemDefault()).getDayOfWeek()) {
 
 					logger.info("Performing database validation check against FIL");
-					lastValidationCheckTime = Instant.now();
 					try {
-
-						Map<String, Timestamp> missMatchedMap = NotamDb.validateDatabase(filClient.getFnsInitialLoad());
-						if (!missMatchedMap.isEmpty()) {
-							logger.warn("Validation with Notam Database Failed");
-
-							String missMatches = missMatchedMap.keySet().stream()
-									.map(key -> key + ":" + missMatchedMap.get(key))
-									.collect(Collectors.joining(", ", "{", "}"));
-
-							logger.debug("Missing NOTAMs: " + missMatches);
-						} else {
-							logger.info("Database validated against FIL");
-						}
-					} catch (Exception e) {
-						logger.error("Failed to validate database with FIL due to: " + e.getMessage(), e);
+						validateDatabase();
+					} catch (JSchException jsche) {
+						logger.error(
+								"Failed to validate database due to: " + jsche.getMessage() + ", Closing", jsche);
 					}
 
 					logger.info("Removing old NOTAMS from database");
@@ -220,6 +209,33 @@ public class FnsClient implements ExceptionListener {
 		}
 	}
 
+	private void validateDatabase() throws JSchException
+	{
+		filClient.connectToFil();
+		lastValidationCheckTime = Instant.now();
+		try {
+
+			Map<String, Timestamp> missMatchedMap = NotamDb.validateDatabase(filClient.getFnsInitialLoad());
+			if (!missMatchedMap.isEmpty()) {
+				logger.warn("Validation with Notam Database Failed");
+
+				String missMatches = missMatchedMap.keySet().stream()
+						.map(key -> key + ":" + missMatchedMap.get(key))
+						.collect(Collectors.joining(", ", "{", "}"));
+
+				logger.debug("Missing NOTAMs: " + missMatches);
+			} else {
+				logger.info("Database validated against FIL");
+			}
+		} catch (Exception e) {
+			logger.error("Failed to validate database with FIL due to: " + e.getMessage(), e);
+		}
+		finally
+		{
+			filClient.close();
+		}
+	}
+	
 	public void stop() {
 		isRunning = false;
 	}
