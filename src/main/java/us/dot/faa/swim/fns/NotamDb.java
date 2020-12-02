@@ -42,17 +42,18 @@ import us.dot.faa.swim.utilities.XmlSplitterSaxParser;
 
 public class NotamDb {
 	private final static Logger logger = LoggerFactory.getLogger(NotamDb.class);
-	private static String connectionUrl = "jdbc:h2:./Notams;mode=MySQL;AUTO_SERVER=TRUE";
-	private static String driver = "org.postgresql.Driver";
-	private static String username = "";
-	private static String password = "";
-	private static String schema = "PUBLIC";
-	private static String table = "NOTAMS";
-	private static boolean isValid = false;
+	private String connectionUrl = "jdbc:h2:./Notams;mode=MySQL;AUTO_SERVER=TRUE";
+	private String driver = "org.postgresql.Driver";
+	private String username = "";
+	private String password = "";
+	private String schema = "PUBLIC";
+	private String table = "NOTAMS";
+	private boolean isValid = false;
+	private boolean isInitializing = false;
 
-	public static Queue<FnsMessage> pendingMessages = new ConcurrentLinkedQueue<FnsMessage>();
+	public Queue<FnsMessage> pendingMessages = new ConcurrentLinkedQueue<FnsMessage>();
 
-	public static void setConfig(final String dbConnectionUrl, final String dbDriver, final String dbUsername,
+	public void setConfig(final String dbConnectionUrl, final String dbDriver, final String dbUsername,
 			final String dbPassword, final String dbSchema, final String notamTableName) throws Exception {
 
 		if (!dbDriver.startsWith("jdbc:h2") || !dbDriver.startsWith("jdbc:postgresql")) {
@@ -60,48 +61,56 @@ public class NotamDb {
 					"DB Driver: " + dbDriver + " currently not supported. Only h2 and postgresql are supported.");
 		}
 
-		connectionUrl = dbConnectionUrl;
-		driver = dbDriver;
-		username = dbUsername;
-		password = dbPassword;
-		schema = dbSchema;
-		table = notamTableName;
+		this.connectionUrl = dbConnectionUrl;
+		this.driver = dbDriver;
+		this.username = dbUsername;
+		this.password = dbPassword;
+		this.schema = dbSchema;
+		this.table = notamTableName;
 	}
 
-	public static boolean isValid() {
-		return isValid;
+	public boolean isValid() {
+		return this.isValid;
 	}
 
-	public static void setInvalid() {
-		isValid = false;
+	public void setInvalid() {
+		this.isValid = false;
 	}
 
-	public static void initalizeNotamDb(String filePath)
-			throws FileNotFoundException, IOException, SQLException, SAXException, ParserConfigurationException, Exception {
+	public void initalizeNotamDb(String filePath) throws FileNotFoundException, IOException, SQLException, SAXException,
+			ParserConfigurationException, Exception {
 		initalizeNotamDb(new GZIPInputStream(new FileInputStream(filePath)));
 	};
 
-	public static void initalizeNotamDb(InputStream inputStream)
+	public void initalizeNotamDb(InputStream inputStream)
 			throws SQLException, IOException, SAXException, ParserConfigurationException, Exception {
+
+		if (this.isInitializing) {
+			return;
+		} else {
+			this.isInitializing = true;
+		}
 
 		try {
 
-			createNotamTable();
+			dropAndCreateNotamTable();
 
 			logger.info("Initizliaing NotamDb from FIL File");
-			
-			int notamCount = loadNotams(inputStream);
 
-			isValid = true;
+			final int notamCount = loadNotams(inputStream);
+
+			this.isValid = true;
 
 			logger.info("Loaded " + notamCount + " Notams");
 
 			loadQueuedMessages();
+
 			logger.info("NotamDb initalized");
 		} catch (SQLException | IOException | SAXException | ParserConfigurationException sqle) {
 			throw sqle;
 		} finally {
 			try {
+				this.isInitializing = false;
 				inputStream.close();
 			} catch (IOException ioe) {
 				logger.error(ioe.getMessage(), ioe);
@@ -109,21 +118,21 @@ public class NotamDb {
 		}
 	}
 
-	private static void createNotamTable() throws SQLException {
+	private void dropAndCreateNotamTable() throws SQLException {
 
 		final Connection conn = getDBConnection();
 		logger.info("Creating NOTAMS Table");
 		logger.info("Looking for existing NOTAMS Table");
 
 		try {
-			if (connectionUrl.startsWith("jdbc:h2")) {
+			if (this.connectionUrl.startsWith("jdbc:h2")) {
 				final ResultSet rset = conn.getMetaData().getTables(null, schema, table, null);
 				if (rset.next()) {
 					logger.info("Existing NOTAMS Table found, dropping");
 					final String dropQuery = "DROP TABLE " + table;
 					conn.prepareStatement(dropQuery).execute();
 				}
-			} else if (connectionUrl.startsWith("jdbc:postgresql")) {
+			} else if (this.connectionUrl.startsWith("jdbc:postgresql")) {
 				final ResultSet rset = conn.getMetaData().getTables(null, schema, table, null);
 				if (rset.next()) {
 					logger.info("Existing NOTAMS Table found, dropping");
@@ -132,7 +141,7 @@ public class NotamDb {
 				}
 			}
 
-			if (connectionUrl.startsWith("jdbc:h2")) {
+			if (this.connectionUrl.startsWith("jdbc:h2")) {
 				final String createQuery = "CREATE TABLE " + table + "(fnsid int primary key, "
 						+ "correlationId bigint, issuedTimestamp timestamp, storedTimeStamp timestamp, "
 						+ "updatedTimestamp timestamp, validFromTimestamp timestamp, validToTimestamp timestamp, "
@@ -143,7 +152,7 @@ public class NotamDb {
 				final String CreateDesignatorIndex = "CREATE INDEX index_locationDesignator ON NOTAMS (locationDesignator)";
 				conn.prepareStatement(CreateDesignatorIndex).execute();
 
-			} else if (connectionUrl.startsWith("jdbc:postgresql")) {
+			} else if (this.connectionUrl.startsWith("jdbc:postgresql")) {
 				final String createQuery = "CREATE TABLE " + table + "(fnsid int primary key, "
 						+ "correlationId bigint, issuedTimestamp timestamp, storedTimeStamp timestamp, "
 						+ "updatedTimestamp timestamp, validFromTimestamp timestamp, validToTimestamp timestamp, "
@@ -166,7 +175,7 @@ public class NotamDb {
 		}
 	}
 
-	private static void loadQueuedMessages() throws SQLException {
+	private void loadQueuedMessages() throws SQLException {
 
 		logger.info("Loading " + pendingMessages.size() + " queued notams");
 
@@ -190,7 +199,7 @@ public class NotamDb {
 	}
 
 	@SuppressWarnings("serial")
-	public static void putNotam(final FnsMessage fnsMessage) throws SQLException {
+	public void putNotam(final FnsMessage fnsMessage) throws SQLException {
 
 		logger.debug("Putting NOTAM with FNS_ID:" + fnsMessage.getFNS_ID() + " and CorrelationId: "
 				+ fnsMessage.getCorrelationId() + " in Database");
@@ -224,7 +233,7 @@ public class NotamDb {
 
 	}
 
-	public static void putNotams(final List<FnsMessage> fnsMessages) throws SQLException {
+	public void putNotams(final List<FnsMessage> fnsMessages) throws SQLException {
 		final Connection conn = getDBConnection();
 
 		try {
@@ -240,13 +249,13 @@ public class NotamDb {
 		}
 	}
 
-	private static void putNotams(Connection conn, final List<FnsMessage> fnsMessages) throws SQLException {
+	private void putNotams(Connection conn, final List<FnsMessage> fnsMessages) throws SQLException {
 
 		PreparedStatement putMessagePreparedStatement = null;
 
 		try {
 
-			if (connectionUrl.startsWith("jdbc:h2")) {
+			if (this.connectionUrl.startsWith("jdbc:h2")) {
 
 				putMessagePreparedStatement = conn.prepareStatement("INSERT INTO " + table
 						+ " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " + "ON DUPLICATE KEY UPDATE "
@@ -254,7 +263,7 @@ public class NotamDb {
 						+ "validToTimestamp =?, " + "classification =?, " + "locationDesignator =?, "
 						+ "notamAccountability =?, " + "notamText =?, " + "aixmNotamMessage =?," + "status =?");
 
-			} else if (connectionUrl.startsWith("jdbc:postgresql")) {
+			} else if (this.connectionUrl.startsWith("jdbc:postgresql")) {
 				putMessagePreparedStatement = conn.prepareStatement("INSERT INTO " + table
 						+ " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " + "ON CONFLICT (fnsid) DO UPDATE SET "
 						+ "correlationId = ?, " + "updatedTimestamp = ?, " + "validFromTimestamp =?, "
@@ -277,12 +286,12 @@ public class NotamDb {
 				putMessagePreparedStatement.setString(10, fnsMessage.getNotamAccountability());
 				putMessagePreparedStatement.setString(11, fnsMessage.getNotamText());
 
-				if (connectionUrl.startsWith("jdbc:h2")) {
+				if (this.connectionUrl.startsWith("jdbc:h2")) {
 					final Clob aixmNotamMessageClob = conn.createClob();
 					aixmNotamMessageClob.setString(1, fnsMessage.getAixmNotamMessage());
 
 					putMessagePreparedStatement.setClob(12, aixmNotamMessageClob);
-				} else if (connectionUrl.startsWith("jdbc:postgresql")) {
+				} else if (this.connectionUrl.startsWith("jdbc:postgresql")) {
 					SQLXML aixmNotamMessageSqlXml = conn.createSQLXML();
 					aixmNotamMessageSqlXml.setString(fnsMessage.getAixmNotamMessage());
 
@@ -301,12 +310,12 @@ public class NotamDb {
 				putMessagePreparedStatement.setString(20, fnsMessage.getNotamAccountability());
 				putMessagePreparedStatement.setString(21, fnsMessage.getNotamText());
 
-				if (connectionUrl.startsWith("jdbc:h2")) {
+				if (this.connectionUrl.startsWith("jdbc:h2")) {
 					final Clob aixmNotamMessageClob = conn.createClob();
 					aixmNotamMessageClob.setString(1, fnsMessage.getAixmNotamMessage());
 
 					putMessagePreparedStatement.setClob(22, aixmNotamMessageClob);
-				} else if (connectionUrl.startsWith("jdbc:postgresql")) {
+				} else if (this.connectionUrl.startsWith("jdbc:postgresql")) {
 					SQLXML aixmNotamMessageSqlXml = conn.createSQLXML();
 					aixmNotamMessageSqlXml.setString(fnsMessage.getAixmNotamMessage());
 
@@ -333,7 +342,7 @@ public class NotamDb {
 
 	}
 
-	public static boolean checkIfNotamIsNewer(final FnsMessage fnsMessage) throws SQLException {
+	public boolean checkIfNotamIsNewer(final FnsMessage fnsMessage) throws SQLException {
 
 		final Connection conn = getDBConnection();
 
@@ -368,7 +377,7 @@ public class NotamDb {
 		return false;
 	}
 
-	public static int removeOldNotams() throws SQLException {
+	public int removeOldNotams() throws SQLException {
 		final Connection conn = getDBConnection();
 		PreparedStatement putMessagePreparedStatement;
 		try {
@@ -391,7 +400,7 @@ public class NotamDb {
 		}
 	}
 
-	private static Connection getDBConnection() throws SQLException {
+	private Connection getDBConnection() throws SQLException {
 		Connection dbConnection = null;
 		try {
 			Class.forName(driver);
@@ -413,32 +422,26 @@ public class NotamDb {
 		}
 	}
 
-	private static int loadNotams(InputStream inputStream)
-			throws Exception {
+	private int loadNotams(InputStream inputStream) throws Exception {
 
 		int loadedMessages = 0;
-
+		
 		CopyOnWriteArrayList<String> notamCount = new CopyOnWriteArrayList<String>();
 		final Connection conn = getDBConnection();
-		final List<FnsMessage> toInsert = new ArrayList<FnsMessage>();
 
 		try {
 
 			final XmlSplitterSaxParser parser = new XmlSplitterSaxParser(msg -> {
 				try {
-					FnsMessage fnsMessage = new FnsMessage((long) -1, msg);
+					final FnsMessage fnsMessage = new FnsMessage((long) -1, msg);
 					fnsMessage.setStatus(NotamStatus.ACTIVE);
 
-					if (toInsert.size() > 100) {
-						NotamDb.putNotams(conn, toInsert);
-						toInsert.clear();
-					} else {
-						toInsert.add(fnsMessage);
-					}
-
+					putNotam(fnsMessage);
 					notamCount.add(String.valueOf(fnsMessage.getFNS_ID()));
+									
 				} catch (FnsMessageParseException | SQLException e) {
-					logger.error("Failed to load notam due to: " + e.getMessage(), e);							
+					logger.error("Failed to load notam due to: " + e.getMessage(), e);
+					throw new RuntimeException(e);
 				}
 			}, 4);
 
@@ -455,9 +458,10 @@ public class NotamDb {
 			SaxParserErrorHandler parsingErrorHandeler = new SaxParserErrorHandler();
 			xmlReader.setErrorHandler(parsingErrorHandeler);
 			xmlReader.parse(new InputSource(inputStream));
-			if (!parsingErrorHandeler.isValid()) {
-			    throw new Exception("Failed to Parse");
+			if (!parsingErrorHandeler.isValid()) {				
+				throw new Exception("Failed to Parse");
 			}
+			
 			loadedMessages = notamCount.size();
 
 		} catch (final IOException | SAXException | ParserConfigurationException e) {
@@ -474,13 +478,12 @@ public class NotamDb {
 	}
 
 	// db lookups
-
-	public static AbstractMap.SimpleEntry<Integer,String> getByLocationDesignator(String locationDesignator)
+	public AbstractMap.SimpleEntry<Integer, String> getByLocationDesignator(String locationDesignator)
 			throws SQLException, JAXBException {
 
 		Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
-		AbstractMap.SimpleEntry<Integer,String> results = null;
+		AbstractMap.SimpleEntry<Integer, String> results = null;
 		try {
 			selectPreparedStatement = conn
 					.prepareStatement("select fnsid, aixmNotamMessage from " + table + " where locationDesignator = ?"
@@ -497,19 +500,18 @@ public class NotamDb {
 		return results;
 
 	}
-	
-	public static AbstractMap.SimpleEntry<Integer,String> getByClassification(String classification, int lastFnsId) throws SQLException, JAXBException {
+
+	public AbstractMap.SimpleEntry<Integer, String> getByClassification(String classification, int lastFnsId)
+			throws SQLException, JAXBException {
 
 		Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
-		AbstractMap.SimpleEntry<Integer,String> results = null;
+		AbstractMap.SimpleEntry<Integer, String> results = null;
 		try {
-			selectPreparedStatement = conn
-					.prepareStatement(
-							"SELECT fnsid, aixmNotamMessage FROM " + table + 
-							" WHERE fnsid > " + lastFnsId + " AND classification = ? AND status = 'ACTIVE' AND (validtotimestamp > NOW() OR validtotimestamp is null)" +
-							" ORDER BY fnsid"+
-							" LIMIT 1000");
+			selectPreparedStatement = conn.prepareStatement("SELECT fnsid, aixmNotamMessage FROM " + table
+					+ " WHERE fnsid > " + lastFnsId
+					+ " AND classification = ? AND status = 'ACTIVE' AND (validtotimestamp > NOW() OR validtotimestamp is null)"
+					+ " ORDER BY fnsid" + " LIMIT 1000");
 			selectPreparedStatement.setString(1, classification);
 
 			results = createResponse(selectPreparedStatement);
@@ -527,16 +529,15 @@ public class NotamDb {
 
 	}
 
-	public static AbstractMap.SimpleEntry<Integer,String> getDelta(String deltaTime, int lastFnsId) throws SQLException, JAXBException {
-		Connection conn = getDBConnection();
+	public AbstractMap.SimpleEntry<Integer, String> getDelta(String deltaTime, int lastFnsId)
+			throws SQLException, JAXBException {
+		final Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
-		AbstractMap.SimpleEntry<Integer,String> results = null;
+		AbstractMap.SimpleEntry<Integer, String> results = null;
 		try {
-			selectPreparedStatement = conn.prepareStatement(
-					"SELECT fnsid, aixmNotamMessage FROM " + table +
-					" WHERE fnsid > " + lastFnsId + " AND updatedTimestamp >= ? OR validtotimestamp is null" +
-					" order by fnsid" +
-					" LIMIT 1000");			
+			selectPreparedStatement = conn.prepareStatement("SELECT fnsid, aixmNotamMessage FROM " + table
+					+ " WHERE fnsid > " + lastFnsId + " AND updatedTimestamp >= ? OR validtotimestamp is null"
+					+ " order by fnsid" + " LIMIT 1000");
 			selectPreparedStatement.setTimestamp(1, Timestamp.valueOf(deltaTime));
 
 			results = createResponse(selectPreparedStatement);
@@ -549,18 +550,17 @@ public class NotamDb {
 		return results;
 	}
 
-	public static AbstractMap.SimpleEntry<Integer,String>  getByTimeRange(String fromDateTime, String toDateTime, int lastFnsId)
-			throws SQLException, JAXBException {
+	public AbstractMap.SimpleEntry<Integer, String> getByTimeRange(String fromDateTime, String toDateTime,
+			int lastFnsId) throws SQLException, JAXBException {
 
-		Connection conn = getDBConnection();
+		final Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
 		SimpleEntry<Integer, String> results = null;
 		try {
-			selectPreparedStatement = conn.prepareStatement(
-					"SELECT fnsid, aixmNotamMessage from " + table +
-					" WHERE fnsid > " + lastFnsId + " AND validFromTimestamp >= ? AND (validToTimestamp <= ? OR validToTimestamp is null) AND status = 'ACTIVE'" +
-					" ORDER BY fnsid" +
-					" LIMIT 1000");
+			selectPreparedStatement = conn.prepareStatement("SELECT fnsid, aixmNotamMessage from " + table
+					+ " WHERE fnsid > " + lastFnsId
+					+ " AND validFromTimestamp >= ? AND (validToTimestamp <= ? OR validToTimestamp is null) AND status = 'ACTIVE'"
+					+ " ORDER BY fnsid" + " LIMIT 1000");
 
 			selectPreparedStatement.setTimestamp(1, Timestamp.valueOf(fromDateTime));
 			selectPreparedStatement.setTimestamp(2, Timestamp.valueOf(toDateTime));
@@ -577,37 +577,35 @@ public class NotamDb {
 		return results;
 	}
 
-	
-	public static AbstractMap.SimpleEntry<Integer,String> getAllNotams(int lastFnsId) throws SQLException, JAXBException {
-		Connection conn = getDBConnection();
+	public AbstractMap.SimpleEntry<Integer, String> getAllNotams(int lastFnsId) throws SQLException, JAXBException {
+		final Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
 		SimpleEntry<Integer, String> results = null;
 		try {
-			selectPreparedStatement = conn.prepareStatement(
-					"SELECT fnsid, aixmNotamMessage FROM " + table +
-					" WHERE fnsid > "+ lastFnsId +" AND status = 'ACTIVE' AND (validtotimestamp > NOW()  OR validtotimestamp is null)"+
-					" ORDER BY fnsid"+
-					" LIMIT 1000");
+			selectPreparedStatement = conn
+					.prepareStatement("SELECT fnsid, aixmNotamMessage FROM " + table + " WHERE fnsid > " + lastFnsId
+							+ " AND status = 'ACTIVE' AND (validtotimestamp > NOW()  OR validtotimestamp is null)"
+							+ " ORDER BY fnsid" + " LIMIT 1000");
 
 			results = createResponse(selectPreparedStatement);
 		} catch (SQLException e) {
 			logger.error("[DB] Error Createing Select Statement: " + e.getMessage());
 		} finally {
 			conn.close();
-		}				
+		}
 
 		return results;
 	}
 
-	private static AbstractMap.SimpleEntry<Integer,String> createResponse(PreparedStatement selectPreparedStatement)
+	private AbstractMap.SimpleEntry<Integer, String> createResponse(PreparedStatement selectPreparedStatement)
 			throws SQLException, JAXBException {
-		long startTime = System.nanoTime();
-		ResultSet resultSet = selectPreparedStatement.executeQuery();
+		final long startTime = System.nanoTime();
+		final ResultSet resultSet = selectPreparedStatement.executeQuery();
 
 		final List<String> aixmMessageStringList = new ArrayList<String>();
 
 		int lastFnsId = 0;
-		
+
 		while (resultSet.next()) {
 
 			String aixmNotam = resultSet.getString("aixmNotamMessage");
@@ -619,21 +617,21 @@ public class NotamDb {
 
 		selectPreparedStatement.close();
 
-		long endTime = System.nanoTime();
-		long totalTime = endTime - startTime;
+		final long endTime = System.nanoTime();
+		final long totalTime = endTime - startTime;
 		logger.info("Selected and Marshaled " + aixmMessageStringList.size() + " Messages from DB. Took "
 				+ TimeUnit.MILLISECONDS.convert(totalTime, TimeUnit.NANOSECONDS) + " ms");
 
-		String result = FnsMessage.createAixmBasicMessageCollectionMessage(aixmMessageStringList);
-		
-		return new AbstractMap.SimpleEntry<Integer,String>(lastFnsId ,result);
+		final String result = FnsMessage.createAixmBasicMessageCollectionMessage(aixmMessageStringList);
+
+		return new AbstractMap.SimpleEntry<Integer, String>(lastFnsId, result);
 	}
 
-	public static Map<String, Timestamp> validateDatabase(InputStream inputStream)
+	public Map<String, Timestamp> validateDatabase(InputStream inputStream)
 			throws SQLException, ParserConfigurationException, IOException, SAXException {
 		Map<String, Timestamp> missingNotmasMap = new HashMap<String, Timestamp>();
 
-		Connection conn = getDBConnection();
+		final Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
 		try {
 			selectPreparedStatement = conn.prepareStatement("select fnsid, updatedtimestamp from " + table);
@@ -662,11 +660,11 @@ public class NotamDb {
 
 	}
 
-	private static Map<String, Timestamp> createValidationMapFromDatabase(PreparedStatement selectPreparedStatement)
+	private Map<String, Timestamp> createValidationMapFromDatabase(PreparedStatement selectPreparedStatement)
 			throws SQLException {
 		Map<String, Timestamp> validationMap = new HashMap<String, Timestamp>();
 
-		ResultSet resultSet = selectPreparedStatement.executeQuery();
+		final ResultSet resultSet = selectPreparedStatement.executeQuery();
 
 		while (resultSet.next()) {
 
@@ -680,16 +678,16 @@ public class NotamDb {
 		return validationMap;
 	}
 
-	private static Map<String, Timestamp> createValidationMapFromFil(InputStream filInputSteam)
+	private Map<String, Timestamp> createValidationMapFromFil(InputStream filInputSteam)
 			throws ParserConfigurationException, IOException, SAXException {
 
-		Map<String, Timestamp> validationMap = new HashMap<String, Timestamp>();
+		final Map<String, Timestamp> validationMap = new HashMap<String, Timestamp>();
 
 		logger.info("Getting most recent FNS Initial Load File from SFTP server");
 
 		final XmlSplitterSaxParser parser = new XmlSplitterSaxParser(msg -> {
 			try {
-				FnsMessage fnsMessage = new FnsMessage((long) -1, msg);
+				final FnsMessage fnsMessage = new FnsMessage((long) -1, msg);
 
 				validationMap.put(String.valueOf(fnsMessage.getFNS_ID()), fnsMessage.getUpdatedTimestamp());
 

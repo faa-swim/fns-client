@@ -39,19 +39,33 @@ public class FilClient {
 	private String filFileSavePath = null;
 
 	public FilClient(final String remoteHost, final int remotePort, final String username,
-			final String strictHostKeyChecking, final String knownHostsFilePath, final String certFilePath) {
+			final String strictHostKeyChecking, final String knownHostsFilePath, final String certFilePath) throws JSchException {
 		this.remoteHost = remoteHost;
 		this.remotePort = remotePort;
 		this.username = username;
 		this.strictHostKeyChecking = strictHostKeyChecking;
 		this.knownHostsFilePath = knownHostsFilePath;
 		this.certFilePath = certFilePath;
+		
+		initializeFilClient();
 	}
 
-	public FilClient(final String remoteHost, final String username, final String certFilePath) {
+	public FilClient(final String remoteHost, final String username, final String certFilePath) throws JSchException {
 		this.remoteHost = remoteHost;
 		this.username = username;
 		this.certFilePath = certFilePath;
+		
+		initializeFilClient();
+	}
+	
+	private void initializeFilClient() throws JSchException
+	{
+		if (!knownHostsFilePath.isEmpty()) {
+			final String knownHostsFilename = knownHostsFilePath;
+			this.jsch.setKnownHosts(knownHostsFilename);
+		}
+
+		jsch.addIdentity(certFilePath);
 	}
 
 	public void setFilFileSavePath(String filFileSavePath)
@@ -68,13 +82,6 @@ public class FilClient {
 		java.util.Properties config = new java.util.Properties();
 		config.put("StrictHostKeyChecking", strictHostKeyChecking);
 		jschSession.setConfig(config);
-		if (!knownHostsFilePath.isEmpty()) {
-			final String knownHostsFilename = knownHostsFilePath;
-			jsch.setKnownHosts(knownHostsFilename);
-		}
-
-		jsch.addIdentity(certFilePath);
-
 		jschSession.connect();
 
 		final Channel channel = jschSession.openChannel("sftp");
@@ -106,15 +113,28 @@ public class FilClient {
 			// check fil last update and wait for next update then get file
 			final Date refDate = new Date(System.currentTimeMillis());
 			boolean mostRecentFilFileAvailable = false;
+			SimpleDateFormat formatter = new SimpleDateFormat(filDataFileTimeFormat);
+			String primary_last_date = "";
+			Date modTime = null;
+			String filFileLocalPath = "";
 			
 			while (!mostRecentFilFileAvailable) {
-
-				inputStream_primary_last_date = sftpChannel.get(filDateFileName);
+				
+				try
+				{				
+					inputStream_primary_last_date = sftpChannel.get(filDateFileName);
+				}
+				catch (SftpException e)
+				{
+					logger.info("FIL Date Time File Not Available; waiting...");
+					Thread.sleep(1000 * 5 * 1);
+					continue;
+				}
+				
 				bufferedReader = new BufferedReader(new InputStreamReader(inputStream_primary_last_date));
-				String primary_last_date = bufferedReader.lines().reduce("", String::concat).trim() + " UTC";
-
-				SimpleDateFormat formatter = new SimpleDateFormat(filDataFileTimeFormat);
-				Date modTime = formatter.parse(primary_last_date);
+				primary_last_date = bufferedReader.lines().reduce("", String::concat).trim() + " UTC";
+				
+				modTime = formatter.parse(primary_last_date);
 
 				if (modTime.compareTo(refDate) >= 0) {
 					mostRecentFilFileAvailable = true;
@@ -128,7 +148,7 @@ public class FilClient {
 			}
 
 			if (filFileSavePath != null) {
-				String filFileLocalPath = filFileSavePath.concat(filFileName);
+				filFileLocalPath = filFileSavePath.concat(filFileName);
 				sftpChannel.get(filFileName, filFileLocalPath);
 				return new GZIPInputStream(new FileInputStream(filFileLocalPath));
 			} else {

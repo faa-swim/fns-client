@@ -30,36 +30,40 @@ import com.typesafe.config.ConfigList;
 import us.dot.faa.swim.jms.JmsClient;
 
 public class FnsClient implements ExceptionListener {
-	private Logger logger = LoggerFactory.getLogger(FnsClient.class);
+	private static Logger logger = LoggerFactory.getLogger(FnsClient.class);
 	private static FilClient filClient = null;
 	private static JmsClient jmsClient = null;
-	private static FnsJmsMessageProcessor fnsJmsMessageProcessor = new FnsJmsMessageProcessor();
+	private static NotamDb notamDb = new NotamDb();
+	private static FnsJmsMessageProcessor fnsJmsMessageProcessor = new FnsJmsMessageProcessor(notamDb);
 	private static Hashtable<String, Object> jndiProperties;
 	private static String jmsConnectionFactoryName = "";
 	private static String jmsQueueName = "";
 	private static Config config;
 	private static boolean isRunning;
 	private static Instant lastValidationCheckTime = Instant.now();
-	private static int databaseValidationRetryCount = 3;
 
 	public static void main(final String[] args) throws InterruptedException {
 
-		config = ConfigFactory.parseFile(new File("fnsClient.conf"));
+		config = ConfigFactory.parseFile(new File(
+				"fnsClient.conf"));
 
 		jmsConnectionFactoryName = config.getString("jms.connectionFactory");
 
-		final FnsClient fnsClient = new FnsClient();
-		filClient = new FilClient(config.getString("fil.sftp.host"), config.getString("fil.sftp.username"),
-				config.getString("fil.sftp.certFilePath"));
-
-		filClient.setFilFileSavePath("");
-
 		try {
-			fnsClient.start();
-		} catch (InterruptedException e) {
-			throw e;
-		} finally {
-			fnsClient.stop();
+			filClient = new FilClient(config.getString("fil.sftp.host"), config.getString("fil.sftp.username"),
+					config.getString("fil.sftp.certFilePath"));
+			filClient.setFilFileSavePath("");
+
+			final FnsClient fnsClient = new FnsClient();
+			try {
+				fnsClient.start();
+			} catch (InterruptedException e) {
+				throw e;
+			} finally {
+				fnsClient.stop();
+			}
+		} catch (JSchException e1) {
+			logger.error("Failed to initalize FIL Client", e1);
 		}
 	}
 
@@ -75,26 +79,27 @@ public class FnsClient implements ExceptionListener {
 		}
 
 		jmsQueueName = config.getString("jms.destination");
-
+		
 		fnsJmsMessageProcessor
 				.setMissedMessageTriggerTime(config.getInt("fnsClient.messageTracker.missedMessageTriggerTime"));
 
 		connectJmsClient();
 
+		Thread.sleep(30 * 1000);		
+		
 		initalizeNotamDbFromFil();
 
 		FnsRestApi fnsRestApi = null;
 		if (config.getBoolean("restapi.enabled")) {
 			logger.info("Starting REST API");
-			fnsRestApi = new FnsRestApi();
+			fnsRestApi = new FnsRestApi(notamDb);
 		}
 
 		isRunning = true;
 
-		while (isRunning) {
-			Thread.sleep(10 * 1000);
-
-			if (NotamDb.isValid()) {
+		while (isRunning) {			
+			Thread.sleep(15 * 1000);
+			if (notamDb.isValid()) {
 				Map<Long, Instant> missedMessages = fnsJmsMessageProcessor.getMissedMessage();
 
 				if (!missedMessages.isEmpty()) {
@@ -106,8 +111,8 @@ public class FnsClient implements ExceptionListener {
 							"Missed Message Identified, setting NotamDb to Invalid and ReInitalizing from FNS Initial Load | Missed Messages "
 									+ cachedCorellationIds);
 
-					if (NotamDb.isValid()) {
-						NotamDb.setInvalid();
+					if (notamDb.isValid()) {
+						notamDb.setInvalid();
 						initalizeNotamDbFromFil();
 					}
 
@@ -119,11 +124,11 @@ public class FnsClient implements ExceptionListener {
 							+ fnsJmsMessageProcessor.getLastMessageRecievedTime()
 							+ " Setting NotamDb to Invalid and ReInitalizing from FNS Initial Load");
 
-					fnsJmsMessageProcessor.clearMissedMessages();
+					Thread.sleep(60 * 1000);
 
 					try {
-						if (NotamDb.isValid()) {
-							NotamDb.setInvalid();
+						if (notamDb.isValid()) {
+							notamDb.setInvalid();
 							initalizeNotamDbFromFil();
 						}
 					} catch (Exception e) {
@@ -139,17 +144,18 @@ public class FnsClient implements ExceptionListener {
 							logger.info("Database validated against FIL");
 						} else {
 							logger.warn("Validation with Notam Database Failed, setting NotamDB to invalid");
-							NotamDb.setInvalid();
+							notamDb.setInvalid();
 						}
 
 					} catch (Exception e) {
-						logger.error("Failed to validate database due to: " + e.getMessage() + ", setting NotamDB to invalid", e);
-						NotamDb.setInvalid();
+						logger.error("Failed to validate database due to: " + e.getMessage()
+								+ ", setting NotamDB to invalid", e);
+						notamDb.setInvalid();
 					}
 
 					logger.info("Removing old NOTAMS from database");
 					try {
-						int notamsRemoved = NotamDb.removeOldNotams();
+						int notamsRemoved = notamDb.removeOldNotams();
 						logger.info("Removed " + notamsRemoved + " Notams");
 					} catch (final Exception e) {
 						logger.error(
@@ -208,7 +214,7 @@ public class FnsClient implements ExceptionListener {
 		while (!successful) {
 			try {
 				filClient.connectToFil();
-				NotamDb.initalizeNotamDb(filClient.getFnsInitialLoad());
+				notamDb.initalizeNotamDb(filClient.getFnsInitialLoad());
 				successful = true;
 			} catch (Exception e) {
 				logger.error("Failed to Initialized NotamDb due to: " + e.getMessage(), e);
@@ -226,9 +232,8 @@ public class FnsClient implements ExceptionListener {
 	private boolean validateDatabase() throws Exception {
 		try {
 			filClient.connectToFil();
-			lastValidationCheckTime = Instant.now();
 
-			Map<String, Timestamp> missMatchedMap = NotamDb.validateDatabase(filClient.getFnsInitialLoad());
+			Map<String, Timestamp> missMatchedMap = notamDb.validateDatabase(filClient.getFnsInitialLoad());
 			if (!missMatchedMap.isEmpty()) {
 
 				String missMatches = missMatchedMap.keySet().stream().map(key -> key + ":" + missMatchedMap.get(key))
@@ -236,13 +241,14 @@ public class FnsClient implements ExceptionListener {
 
 				logger.debug("Missing NOTAMs: " + missMatches);
 				return false;
-			} else {
-				return false;
+			} else {				
+				return true;
 			}
 		} catch (SQLException | ParserConfigurationException | IOException | SAXException | SftpException
 				| ParseException | InterruptedException e) {
 			throw e;
 		} finally {
+			lastValidationCheckTime = Instant.now();
 			filClient.close();
 		}
 	}

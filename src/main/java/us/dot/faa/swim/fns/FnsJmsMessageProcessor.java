@@ -5,6 +5,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
 
 import javax.jms.BytesMessage;
@@ -20,11 +22,18 @@ import us.dot.faa.swim.fns.FnsMessage.NotamStatus;
 public class FnsJmsMessageProcessor implements MessageListener {
 	private static final Logger logger = LoggerFactory.getLogger(FnsJmsMessageProcessor.class);
 
+	private NotamDb notamDb = null;
 	private int missedMessageTriggerTimeInMinutes = 5;
 	private long lastRecievedCorrelationId = -1;
 	private Instant lastMessageRecievedTime = Instant.now();
 	private ConcurrentHashMap<Long, Instant> missedMessagesHashMap = new ConcurrentHashMap<Long, Instant>();
+	private final ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(4);
 
+	public FnsJmsMessageProcessor(NotamDb notamDb)
+	{
+		this.notamDb = notamDb;
+	}
+	
 	public void setMissedMessageTriggerTime(int timeInMinutes) {
 		missedMessageTriggerTimeInMinutes = timeInMinutes;
 	}
@@ -36,8 +45,10 @@ public class FnsJmsMessageProcessor implements MessageListener {
 	}
 
 	public void clearMissedMessages() {
-		missedMessagesHashMap.entrySet().removeIf(
-				m -> Duration.between(m.getValue(), Instant.now()).toMinutes() >= missedMessageTriggerTimeInMinutes);
+		logger.debug("Clearing Missed Messages");
+		missedMessagesHashMap.clear();		
+		//missedMessagesHashMap.entrySet().removeIf(
+		//		m -> Duration.between(m.getValue(), Instant.now()).toMinutes() >= missedMessageTriggerTimeInMinutes);
 	}
 
 	public Instant getLastMessageRecievedTime() {
@@ -52,33 +63,49 @@ public class FnsJmsMessageProcessor implements MessageListener {
 
 			FnsMessage fnsMessage = parseFnsJmsMessage(jmsMessage);
 
+			logger.debug("Recieved JMS FNS Message " + fnsMessage.getFNS_ID() + " with CorrelationIds: "
+					+ fnsMessage.getCorrelationId() + " | Latency (ms): "
+					+ (Instant.now().toEpochMilli() - jmsMessage.getJMSTimestamp()));
+			
 			if (lastRecievedCorrelationId == -1) {
 				lastRecievedCorrelationId = fnsMessage.getCorrelationId();
+				logger.debug("Setting lastRecievedCorrelationId to: " + fnsMessage.getCorrelationId() );
 			} else if (fnsMessage.getCorrelationId() != -1) {
 
-				missedMessagesHashMap.remove(fnsMessage.getCorrelationId());
+				if(missedMessagesHashMap.remove(fnsMessage.getCorrelationId()) != null)
+				{
+					logger.debug("Removed "+ fnsMessage.getCorrelationId() + " from missed messges hash map");
+				}
+				
 
 				if (fnsMessage.getCorrelationId() - lastRecievedCorrelationId == 1) {
 					lastRecievedCorrelationId = fnsMessage.getCorrelationId();
+					logger.debug("Setting lastRecievedCorrelationId to: " + fnsMessage.getCorrelationId() );
 				} else if (fnsMessage.getCorrelationId() - lastRecievedCorrelationId > 1) {
-					long countOfMissedMessages = fnsMessage.getCorrelationId() - lastRecievedCorrelationId - 1;
-
+					long countOfMissedMessages = fnsMessage.getCorrelationId() - lastRecievedCorrelationId - 1;					
+					
 					for (int i = 0; i < countOfMissedMessages; i++) {
 						Long missedMessageId = lastRecievedCorrelationId + i + 1;
 						missedMessagesHashMap.put(missedMessageId, lastMessageRecievedTime);
+						logger.debug("Missed Message Identified, putting in missed message hash map: " + missedMessageId );
 					}
+					
 					lastRecievedCorrelationId = fnsMessage.getCorrelationId();
+					logger.debug("Setting lastRecievedCorrelationId to: " + fnsMessage.getCorrelationId() );
 				}
 
 				// FnsMissedMessageTracker.addProcessedCorrelationIdToCache(fnsMessage.getCorrelationId());
-				logger.debug("Recieved JMS FNS Message " + fnsMessage.getFNS_ID() + " with CorrelationIds: "
-						+ fnsMessage.getCorrelationId() + " | Latency (ms): "
-						+ (Instant.now().toEpochMilli() - jmsMessage.getJMSTimestamp()));
-			} else {
-				logger.debug("Recieved JMS FNS Message with no CorrelationId");
-			}
 
-			processFnsMessage(fnsMessage);
+			} else {
+				logger.warn("Recieved JMS FNS Message with no CorrelationId");
+			}
+			
+			executor.execute(new Runnable(){
+				@Override
+				public void run() {
+					processFnsMessage(fnsMessage);					
+				}				
+			});
 
 		} catch (Exception e) {
 			logger.error("Failed to processed JMS Text Message due to: " + e.getMessage());
@@ -111,17 +138,17 @@ public class FnsJmsMessageProcessor implements MessageListener {
 	}
 
 	private void processFnsMessage(final FnsMessage fnsMessage) {
-		if (!NotamDb.isValid()) {
+		if (!this.notamDb.isValid()) {
 			logger.debug("Pending " + fnsMessage.getStatus() + " NOTAM with FNS_ID:" + fnsMessage.getFNS_ID()
 					+ " and CorrelationId: " + fnsMessage.getCorrelationId() + " due to invalid database.");
-			NotamDb.pendingMessages.add(fnsMessage);
+			this.notamDb.pendingMessages.add(fnsMessage);
 		} else {
 
 			try {
-				NotamDb.putNotam(fnsMessage);
+				this.notamDb.putNotam(fnsMessage);
 			} catch (SQLException e) {
 				logger.warn("Failed to insert Notam into Database, setting NotamDb to inValid", e);
-				NotamDb.setInvalid();
+				this.notamDb.setInvalid();
 			}
 		}
 	}

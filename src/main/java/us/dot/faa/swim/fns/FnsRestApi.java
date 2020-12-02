@@ -28,7 +28,11 @@ import spark.Spark;
 public class FnsRestApi {
 	private static final Logger logger = LoggerFactory.getLogger(FnsRestApi.class);
     
-    public FnsRestApi() {
+	private NotamDb notamDb = null;
+	
+    public FnsRestApi(NotamDb notamDb) {
+    	
+    	this.notamDb = notamDb;
     	
         Spark.staticFiles.location("/public");
 
@@ -116,7 +120,7 @@ public class FnsRestApi {
         get("/locationDesignator/:id", (req, res) -> {
             long startTime = System.nanoTime();
 
-            String toReturn = NotamDb.getByLocationDesignator(req.params(":id")).getValue();
+            String toReturn = this.notamDb.getByLocationDesignator(req.params(":id")).getValue();
 
             long endTime = System.nanoTime();
             long totalTime = endTime - startTime;
@@ -136,7 +140,7 @@ public class FnsRestApi {
             }
             
             String toReturn = "";
-            AbstractMap.SimpleEntry<Integer,String> results = NotamDb.getByClassification(req.params(":id"),lastFnsId);                        
+            AbstractMap.SimpleEntry<Integer,String> results = this.notamDb.getByClassification(req.params(":id"),lastFnsId);                        
             toReturn = results.getValue();                
             lastFnsId = results.getKey();
             
@@ -162,7 +166,7 @@ public class FnsRestApi {
             }
             
             String toReturn = "";
-            AbstractMap.SimpleEntry<Integer,String> results = NotamDb.getDelta(deltaTime, lastFnsId);
+            AbstractMap.SimpleEntry<Integer,String> results = this.notamDb.getDelta(deltaTime, lastFnsId);
             
             toReturn = results.getValue();                
             lastFnsId = results.getKey();
@@ -200,7 +204,7 @@ public class FnsRestApi {
             }
             
             String toReturn = "";
-            AbstractMap.SimpleEntry<Integer,String> results = NotamDb.getByTimeRange(fromDateTime, toDateTime, lastFnsId);
+            AbstractMap.SimpleEntry<Integer,String> results = this.notamDb.getByTimeRange(fromDateTime, toDateTime, lastFnsId);
             
             toReturn = results.getValue();                
             lastFnsId = results.getKey();
@@ -234,7 +238,7 @@ public class FnsRestApi {
             	lastFnsId = Integer.parseInt(req.headers("lastFnsId"));
             }
             
-            AbstractMap.SimpleEntry<Integer,String> results = NotamDb.getAllNotams(lastFnsId);
+            AbstractMap.SimpleEntry<Integer,String> results = this.notamDb.getAllNotams(lastFnsId);
             
             String toReturn = results.getValue();
             
