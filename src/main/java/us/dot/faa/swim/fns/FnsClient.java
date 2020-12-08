@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.ParseException;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Hashtable;
@@ -28,6 +27,7 @@ import com.typesafe.config.ConfigFactory;
 import com.typesafe.config.ConfigList;
 
 import us.dot.faa.swim.jms.JmsClient;
+import us.dot.faa.swim.utilities.MissedMessageTracker;
 
 public class FnsClient implements ExceptionListener {
 	private static Logger logger = LoggerFactory.getLogger(FnsClient.class);
@@ -35,6 +35,7 @@ public class FnsClient implements ExceptionListener {
 	private static JmsClient jmsClient = null;
 	private static NotamDb notamDb = new NotamDb();
 	private static FnsJmsMessageProcessor fnsJmsMessageProcessor = new FnsJmsMessageProcessor(notamDb);
+	private static MissedMessageTracker missedMessageTracker = null;
 	private static Hashtable<String, Object> jndiProperties;
 	private static String jmsConnectionFactoryName = "";
 	private static String jmsQueueName = "";
@@ -45,7 +46,7 @@ public class FnsClient implements ExceptionListener {
 	public static void main(final String[] args) throws InterruptedException {
 
 		config = ConfigFactory.parseFile(new File(
-				"fnsClient.conf"));
+				"C:\\Users\\M30650\\OneDrive - Noblis, Inc\\Documents\\Development\\FNS\\FnsClient\\fnsClient_am.conf"));
 
 		jmsConnectionFactoryName = config.getString("jms.connectionFactory");
 
@@ -80,8 +81,49 @@ public class FnsClient implements ExceptionListener {
 
 		jmsQueueName = config.getString("jms.destination");
 		
-		fnsJmsMessageProcessor
-				.setMissedMessageTriggerTime(config.getInt("fnsClient.messageTracker.missedMessageTriggerTime"));
+		missedMessageTracker = new MissedMessageTracker() {
+			@Override
+			public void onMissed(Map<Long, Instant> missedMessages) {
+				String cachedCorellationIds = missedMessages.entrySet().stream()
+						.map(kvp -> kvp.getKey() + ":" + missedMessages.get(kvp.getKey()))
+						.collect(Collectors.joining(", ", "{", "}"));
+
+				logger.warn(
+						"Missed Message Identified, setting NotamDb to Invalid and ReInitalizing from FNS Initial Load | Missed Messages "
+								+ cachedCorellationIds);
+
+				try {
+					if (notamDb.isValid()) {
+						notamDb.setInvalid();
+						initalizeNotamDbFromFil();
+					}
+				} catch (Exception e) {
+					logger.error("Failed to ReInitialize NotamDb due to: " + e.getMessage(), e);
+				}
+			}
+			
+			@Override
+			public void onStale(Long lastRecievedId, Instant lastRecievedTime)
+			{
+				logger.warn("Have not recieved a JMS message in "
+						+ config.getInt("fnsClient.messageTracker.staleMessageTriggerTime")
+						+ " minutes, last message recieved at "
+						+ lastRecievedTime
+						+ " Setting NotamDb to Invalid and ReInitalizing from FNS Initial Load");
+
+				try {
+					if (notamDb.isValid()) {
+						notamDb.setInvalid();
+						initalizeNotamDbFromFil();
+					}
+				} catch (Exception e) {
+					logger.error("Failed to ReInitialize NotamDb due to: " + e.getMessage(), e);
+				}
+			}
+		};
+		
+		missedMessageTracker.start();
+		fnsJmsMessageProcessor.setMissedMessageTracker(missedMessageTracker);
 
 		connectJmsClient();
 
@@ -99,42 +141,9 @@ public class FnsClient implements ExceptionListener {
 
 		while (isRunning) {			
 			Thread.sleep(15 * 1000);
-			if (notamDb.isValid()) {
-				Map<Long, Instant> missedMessages = fnsJmsMessageProcessor.getMissedMessage();
+			if (notamDb.isValid()) {				
 
-				if (!missedMessages.isEmpty()) {
-					String cachedCorellationIds = missedMessages.entrySet().stream()
-							.map(kvp -> kvp.getKey() + ":" + missedMessages.get(kvp.getKey()))
-							.collect(Collectors.joining(", ", "{", "}"));
-
-					logger.warn(
-							"Missed Message Identified, setting NotamDb to Invalid and ReInitalizing from FNS Initial Load | Missed Messages "
-									+ cachedCorellationIds);
-
-					if (notamDb.isValid()) {
-						notamDb.setInvalid();
-						initalizeNotamDbFromFil();
-					}
-
-				} else if (Duration.between(fnsJmsMessageProcessor.getLastMessageRecievedTime(), Instant.now())
-						.toMinutes() > config.getInt("fnsClient.messageTracker.staleMessageTriggerTime")) {
-					logger.warn("Have not recieved a JMS message in "
-							+ config.getInt("fnsClient.messageTracker.staleMessageTriggerTime")
-							+ " minutes, last message recieved at "
-							+ fnsJmsMessageProcessor.getLastMessageRecievedTime()
-							+ " Setting NotamDb to Invalid and ReInitalizing from FNS Initial Load");
-
-					Thread.sleep(60 * 1000);
-
-					try {
-						if (notamDb.isValid()) {
-							notamDb.setInvalid();
-							initalizeNotamDbFromFil();
-						}
-					} catch (Exception e) {
-						logger.error("Failed to ReInitialize NotamDb due to: " + e.getMessage(), e);
-					}
-				} else if (lastValidationCheckTime.atZone(ZoneId.systemDefault()).getDayOfWeek() != Instant.now()
+				 if (lastValidationCheckTime.atZone(ZoneId.systemDefault()).getDayOfWeek() != Instant.now()
 						.atZone(ZoneId.systemDefault()).getDayOfWeek()) {
 
 					logger.info("Performing database validation check against FIL");
@@ -208,7 +217,7 @@ public class FnsClient implements ExceptionListener {
 
 	private void initalizeNotamDbFromFil() {
 		logger.info("Initalizing Database");
-		fnsJmsMessageProcessor.clearMissedMessages();
+		missedMessageTracker.clearAllMessages();
 
 		boolean successful = false;
 		while (!successful) {

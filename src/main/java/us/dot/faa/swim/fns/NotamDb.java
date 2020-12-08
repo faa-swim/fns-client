@@ -37,8 +37,8 @@ import org.xml.sax.XMLReader;
 
 import us.dot.faa.swim.fns.FnsMessage.FnsMessageParseException;
 import us.dot.faa.swim.fns.FnsMessage.NotamStatus;
-import us.dot.faa.swim.utilities.SaxParserErrorHandler;
-import us.dot.faa.swim.utilities.XmlSplitterSaxParser;
+import us.dot.faa.swim.utilities.xml.SaxParserErrorHandler;
+import us.dot.faa.swim.utilities.xml.XmlSplitterSaxParser;
 
 public class NotamDb {
 	private final static Logger logger = LoggerFactory.getLogger(NotamDb.class);

@@ -1,13 +1,9 @@
 package us.dot.faa.swim.fns;
 
 import java.sql.SQLException;
-import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.stream.Collectors;
 
 import javax.jms.BytesMessage;
 import javax.jms.Message;
@@ -18,15 +14,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import us.dot.faa.swim.fns.FnsMessage.NotamStatus;
+import us.dot.faa.swim.utilities.MissedMessageTracker;
 
 public class FnsJmsMessageProcessor implements MessageListener {
 	private static final Logger logger = LoggerFactory.getLogger(FnsJmsMessageProcessor.class);
 
 	private NotamDb notamDb = null;
-	private int missedMessageTriggerTimeInMinutes = 5;
-	private long lastRecievedCorrelationId = -1;
-	private Instant lastMessageRecievedTime = Instant.now();
-	private ConcurrentHashMap<Long, Instant> missedMessagesHashMap = new ConcurrentHashMap<Long, Instant>();
+	private MissedMessageTracker missedMessageTracker = null;
 	private final ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(4);
 
 	public FnsJmsMessageProcessor(NotamDb notamDb)
@@ -34,70 +28,30 @@ public class FnsJmsMessageProcessor implements MessageListener {
 		this.notamDb = notamDb;
 	}
 	
-	public void setMissedMessageTriggerTime(int timeInMinutes) {
-		missedMessageTriggerTimeInMinutes = timeInMinutes;
+	public FnsJmsMessageProcessor(NotamDb notamDb, MissedMessageTracker missedMessageTracker)
+	{
+		this.notamDb = notamDb;
+		this.missedMessageTracker = missedMessageTracker;
 	}
-
-	public Map<Long, Instant> getMissedMessage() {
-		return missedMessagesHashMap.entrySet().stream().filter(
-				m -> Duration.between(m.getValue(), Instant.now()).toMinutes() >= missedMessageTriggerTimeInMinutes)
-				.collect(Collectors.toMap(m -> m.getKey(), m -> m.getValue()));
-	}
-
-	public void clearMissedMessages() {
-		logger.debug("Clearing Missed Messages");
-		missedMessagesHashMap.clear();		
-		//missedMessagesHashMap.entrySet().removeIf(
-		//		m -> Duration.between(m.getValue(), Instant.now()).toMinutes() >= missedMessageTriggerTimeInMinutes);
-	}
-
-	public Instant getLastMessageRecievedTime() {
-		return lastMessageRecievedTime;
+	
+	public void setMissedMessageTracker(MissedMessageTracker missedMessageTracker)
+	{
+		this.missedMessageTracker = missedMessageTracker;
 	}
 
 	@Override
 	public void onMessage(Message jmsMessage) {
-		try {
-
-			this.lastMessageRecievedTime = Instant.now();
+		try {						
 
 			FnsMessage fnsMessage = parseFnsJmsMessage(jmsMessage);
-
+			
 			logger.debug("Recieved JMS FNS Message " + fnsMessage.getFNS_ID() + " with CorrelationIds: "
 					+ fnsMessage.getCorrelationId() + " | Latency (ms): "
 					+ (Instant.now().toEpochMilli() - jmsMessage.getJMSTimestamp()));
 			
-			if (lastRecievedCorrelationId == -1) {
-				lastRecievedCorrelationId = fnsMessage.getCorrelationId();
-				logger.debug("Setting lastRecievedCorrelationId to: " + fnsMessage.getCorrelationId() );
-			} else if (fnsMessage.getCorrelationId() != -1) {
-
-				if(missedMessagesHashMap.remove(fnsMessage.getCorrelationId()) != null)
-				{
-					logger.debug("Removed "+ fnsMessage.getCorrelationId() + " from missed messges hash map");
-				}
-				
-
-				if (fnsMessage.getCorrelationId() - lastRecievedCorrelationId == 1) {
-					lastRecievedCorrelationId = fnsMessage.getCorrelationId();
-					logger.debug("Setting lastRecievedCorrelationId to: " + fnsMessage.getCorrelationId() );
-				} else if (fnsMessage.getCorrelationId() - lastRecievedCorrelationId > 1) {
-					long countOfMissedMessages = fnsMessage.getCorrelationId() - lastRecievedCorrelationId - 1;					
-					
-					for (int i = 0; i < countOfMissedMessages; i++) {
-						Long missedMessageId = lastRecievedCorrelationId + i + 1;
-						missedMessagesHashMap.put(missedMessageId, lastMessageRecievedTime);
-						logger.debug("Missed Message Identified, putting in missed message hash map: " + missedMessageId );
-					}
-					
-					lastRecievedCorrelationId = fnsMessage.getCorrelationId();
-					logger.debug("Setting lastRecievedCorrelationId to: " + fnsMessage.getCorrelationId() );
-				}
-
-				// FnsMissedMessageTracker.addProcessedCorrelationIdToCache(fnsMessage.getCorrelationId());
-
-			} else {
-				logger.warn("Recieved JMS FNS Message with no CorrelationId");
+			if(missedMessageTracker != null)
+			{
+				missedMessageTracker.put(fnsMessage.getCorrelationId(), Instant.now());
 			}
 			
 			executor.execute(new Runnable(){
