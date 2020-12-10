@@ -46,7 +46,7 @@ public class FnsClient implements ExceptionListener {
 	public static void main(final String[] args) throws InterruptedException {
 
 		config = ConfigFactory.parseFile(new File(
-				"C:\\Users\\M30650\\OneDrive - Noblis, Inc\\Documents\\Development\\FNS\\FnsClient\\fnsClient_am.conf"));
+				"fnsClient.conf"));
 
 		jmsConnectionFactoryName = config.getString("jms.connectionFactory");
 
