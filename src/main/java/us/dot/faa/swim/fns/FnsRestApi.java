@@ -30,9 +30,11 @@ public class FnsRestApi {
     
 	private NotamDb notamDb = null;
 	
-    public FnsRestApi(NotamDb notamDb) {
+    public FnsRestApi(NotamDb notamDb, int port) {
     	
     	this.notamDb = notamDb;
+    	
+    	Spark.port(port);
     	
         Spark.staticFiles.location("/public");
 

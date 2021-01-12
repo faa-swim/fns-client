@@ -126,7 +126,7 @@ public class FilClient {
 				}
 				catch (SftpException e)
 				{
-					logger.info("FIL Date Time File Not Available; waiting...");
+					logger.info("FIL Date Time File Not Available, waiting...");
 					Thread.sleep(1000 * 5 * 1);
 					continue;
 				}

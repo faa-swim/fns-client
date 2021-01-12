@@ -134,7 +134,7 @@ public class FnsClient implements ExceptionListener {
 		FnsRestApi fnsRestApi = null;
 		if (config.getBoolean("restapi.enabled")) {
 			logger.info("Starting REST API");
-			fnsRestApi = new FnsRestApi(notamDb);
+			fnsRestApi = new FnsRestApi(notamDb, config.getInt("restapi.port"));
 		}
 
 		isRunning = true;

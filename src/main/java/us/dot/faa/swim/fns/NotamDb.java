@@ -629,7 +629,7 @@ public class NotamDb {
 
 	public Map<String, Timestamp> validateDatabase(InputStream inputStream)
 			throws SQLException, ParserConfigurationException, IOException, SAXException {
-		Map<String, Timestamp> missingNotmasMap = new HashMap<String, Timestamp>();
+		Map<String, Timestamp> missingNotamsMap = new HashMap<String, Timestamp>();
 
 		final Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
@@ -642,10 +642,10 @@ public class NotamDb {
 			for (Map.Entry<String, Timestamp> entry : filValidationMap.entrySet()) {
 				Timestamp dbUpdateTime = databaseValidationMap.get(entry.getKey());
 				if (dbUpdateTime == null) {
-					missingNotmasMap.put("Missing-" + entry.getKey(), entry.getValue());
+					missingNotamsMap.put("Missing-" + entry.getKey(), entry.getValue());
 				} else {
 					if (!entry.getValue().equals(dbUpdateTime) && !entry.getValue().before(dbUpdateTime)) {
-						missingNotmasMap.put("Newer-" + entry.getKey(), entry.getValue());
+						missingNotamsMap.put("Newer-" + entry.getKey(), entry.getValue());
 					}
 				}
 			}
@@ -656,7 +656,7 @@ public class NotamDb {
 			conn.close();
 		}
 
-		return missingNotmasMap;
+		return missingNotamsMap;
 
 	}
 
