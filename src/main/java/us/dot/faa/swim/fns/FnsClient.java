@@ -34,7 +34,7 @@ public class FnsClient implements ExceptionListener {
 	private static FilClient filClient = null;
 	private static JmsClient jmsClient = null;
 	private static NotamDb notamDb = new NotamDb();
-	private static FnsJmsMessageProcessor fnsJmsMessageProcessor = new FnsJmsMessageProcessor(notamDb);
+	private static FnsJmsMessageProcessor fnsJmsMessageProcessor = null;
 	private static MissedMessageTracker missedMessageTracker = null;
 	private static Hashtable<String, Object> jndiProperties;
 	private static String jmsConnectionFactoryName = "";
@@ -97,6 +97,10 @@ public class FnsClient implements ExceptionListener {
 						notamDb.setInvalid();
 						initalizeNotamDbFromFil();
 					}
+					else if(notamDb.isInitializing())
+					{
+						notamDb.setMissedMessageDuringInitialization();
+					}
 				} catch (Exception e) {
 					logger.error("Failed to ReInitialize NotamDb due to: " + e.getMessage(), e);
 				}
@@ -123,6 +127,7 @@ public class FnsClient implements ExceptionListener {
 		};
 		
 		missedMessageTracker.start();
+		fnsJmsMessageProcessor = new FnsJmsMessageProcessor(notamDb, config.getInt("jms.messageProcessor.processingThreads"));
 		fnsJmsMessageProcessor.setMissedMessageTracker(missedMessageTracker);
 
 		connectJmsClient();
@@ -172,6 +177,10 @@ public class FnsClient implements ExceptionListener {
 					}
 				}
 			}
+			else if(!notamDb.isInitializing())
+			{
+				initalizeNotamDbFromFil();
+			}
 		}
 
 		if (jmsClient != null) {
@@ -217,7 +226,7 @@ public class FnsClient implements ExceptionListener {
 
 	private void initalizeNotamDbFromFil() {
 		logger.info("Initalizing Database");
-		missedMessageTracker.clearAllMessages();
+		missedMessageTracker.clearOnlyMissedMessages();
 
 		boolean successful = false;
 		while (!successful) {

@@ -21,44 +21,36 @@ public class FnsJmsMessageProcessor implements MessageListener {
 
 	private NotamDb notamDb = null;
 	private MissedMessageTracker missedMessageTracker = null;
-	private final ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(4);
+	private final ThreadPoolExecutor executor;
 
-	public FnsJmsMessageProcessor(NotamDb notamDb)
-	{
+	public FnsJmsMessageProcessor(NotamDb notamDb, int processingThreads) {
 		this.notamDb = notamDb;
+		this.executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(processingThreads);
 	}
-	
-	public FnsJmsMessageProcessor(NotamDb notamDb, MissedMessageTracker missedMessageTracker)
-	{
-		this.notamDb = notamDb;
-		this.missedMessageTracker = missedMessageTracker;
-	}
-	
-	public void setMissedMessageTracker(MissedMessageTracker missedMessageTracker)
-	{
+
+	public void setMissedMessageTracker(MissedMessageTracker missedMessageTracker) {
 		this.missedMessageTracker = missedMessageTracker;
 	}
 
 	@Override
 	public void onMessage(Message jmsMessage) {
-		try {						
+		try {
 
 			FnsMessage fnsMessage = parseFnsJmsMessage(jmsMessage);
-			
+
 			logger.debug("Recieved JMS FNS Message " + fnsMessage.getFNS_ID() + " with CorrelationIds: "
 					+ fnsMessage.getCorrelationId() + " | Latency (ms): "
 					+ (Instant.now().toEpochMilli() - jmsMessage.getJMSTimestamp()));
-			
-			if(missedMessageTracker != null)
-			{
+
+			if (missedMessageTracker != null) {
 				missedMessageTracker.put(fnsMessage.getCorrelationId(), Instant.now());
 			}
-			
-			executor.execute(new Runnable(){
+
+			executor.execute(new Runnable() {
 				@Override
 				public void run() {
-					processFnsMessage(fnsMessage);					
-				}				
+					processFnsMessage(fnsMessage);
+				}
 			});
 
 		} catch (Exception e) {
@@ -92,12 +84,14 @@ public class FnsJmsMessageProcessor implements MessageListener {
 	}
 
 	private void processFnsMessage(final FnsMessage fnsMessage) {
+
 		if (!this.notamDb.isValid()) {
 			logger.debug("Pending " + fnsMessage.getStatus() + " NOTAM with FNS_ID:" + fnsMessage.getFNS_ID()
 					+ " and CorrelationId: " + fnsMessage.getCorrelationId() + " due to invalid database.");
-			this.notamDb.pendingMessages.add(fnsMessage);
-		} else {
-
+			this.notamDb.pendingMessages.add(fnsMessage);			
+		}
+		else
+		{
 			try {
 				this.notamDb.putNotam(fnsMessage);
 			} catch (SQLException e) {
@@ -106,5 +100,4 @@ public class FnsJmsMessageProcessor implements MessageListener {
 			}
 		}
 	}
-
 }

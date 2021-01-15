@@ -50,6 +50,7 @@ public class NotamDb {
 	private String table = "NOTAMS";
 	private boolean isValid = false;
 	private boolean isInitializing = false;
+	private boolean missedMessageDuringInitialization = false;
 
 	public Queue<FnsMessage> pendingMessages = new ConcurrentLinkedQueue<FnsMessage>();
 
@@ -77,6 +78,14 @@ public class NotamDb {
 		this.isValid = false;
 	}
 
+	public boolean isInitializing() {
+		return this.isInitializing;
+	}
+
+	public void setMissedMessageDuringInitialization() {
+		this.missedMessageDuringInitialization = true;
+	}
+
 	public void initalizeNotamDb(String filePath) throws FileNotFoundException, IOException, SQLException, SAXException,
 			ParserConfigurationException, Exception {
 		initalizeNotamDb(new GZIPInputStream(new FileInputStream(filePath)));
@@ -99,13 +108,18 @@ public class NotamDb {
 
 			final int notamCount = loadNotams(inputStream);
 
-			this.isValid = true;
+			if (!this.missedMessageDuringInitialization) {
+				this.isValid = true;
 
-			logger.info("Loaded " + notamCount + " Notams");
+				logger.info("Loaded " + notamCount + " Notams");
 
-			loadQueuedMessages();
+				loadQueuedMessages();
 
-			logger.info("NotamDb initalized");
+				logger.info("NotamDb initalized");
+			} else {
+				logger.error("NotamDb initalization failed due to missed message identified during initalization process.");
+				this.isInitializing = false;
+			}
 		} catch (SQLException | IOException | SAXException | ParserConfigurationException sqle) {
 			throw sqle;
 		} finally {
@@ -425,7 +439,7 @@ public class NotamDb {
 	private int loadNotams(InputStream inputStream) throws Exception {
 
 		int loadedMessages = 0;
-		
+
 		CopyOnWriteArrayList<String> notamCount = new CopyOnWriteArrayList<String>();
 		final Connection conn = getDBConnection();
 
@@ -438,7 +452,7 @@ public class NotamDb {
 
 					putNotam(fnsMessage);
 					notamCount.add(String.valueOf(fnsMessage.getFNS_ID()));
-									
+
 				} catch (FnsMessageParseException | SQLException e) {
 					logger.error("Failed to load notam due to: " + e.getMessage(), e);
 					throw new RuntimeException(e);
@@ -458,10 +472,10 @@ public class NotamDb {
 			SaxParserErrorHandler parsingErrorHandeler = new SaxParserErrorHandler();
 			xmlReader.setErrorHandler(parsingErrorHandeler);
 			xmlReader.parse(new InputSource(inputStream));
-			if (!parsingErrorHandeler.isValid()) {				
+			if (!parsingErrorHandeler.isValid()) {
 				throw new Exception("Failed to Parse");
 			}
-			
+
 			loadedMessages = notamCount.size();
 
 		} catch (final IOException | SAXException | ParserConfigurationException e) {
