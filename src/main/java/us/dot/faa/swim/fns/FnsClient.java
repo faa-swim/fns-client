@@ -2,6 +2,8 @@ package us.dot.faa.swim.fns;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.ParseException;
@@ -25,6 +27,7 @@ import com.jcraft.jsch.SftpException;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import com.typesafe.config.ConfigList;
+import com.typesafe.config.ConfigObject;
 
 import us.dot.faa.swim.jms.JmsClient;
 import us.dot.faa.swim.utilities.MissedMessageTracker;
@@ -45,8 +48,12 @@ public class FnsClient implements ExceptionListener {
 
 	public static void main(final String[] args) throws InterruptedException {
 
-		config = ConfigFactory.parseFile(new File(
-				"fnsClient.conf"));
+		if(Files.exists(Paths.get("fnsClient.conf"))){
+			config = ConfigFactory.parseFile(new File("fnsClient.conf"));
+		}
+		else{
+			config = ConfigFactory.load();
+		}
 
 		jmsConnectionFactoryName = config.getString("jms.connectionFactory");
 
@@ -73,10 +80,16 @@ public class FnsClient implements ExceptionListener {
 		logger.info("Starting FnsClient v1.0");
 
 		jndiProperties = new Hashtable<>();
-		for (final Object jndiPropsObject : config.getList("jms.jndiProperties").toArray()) {
-			final ConfigList jndiProps = (ConfigList) jndiPropsObject;
-			jndiProperties.put(jndiProps.get(0).render().toString().replace("\"", ""),
-					jndiProps.get(1).render().toString().replace("\"", ""));
+		for (final Object jndiPropsObject : config.getList("jms.jndiProperties")) {
+			if (jndiPropsObject instanceof ConfigObject) {
+				final ConfigObject jndiProps = (ConfigObject) jndiPropsObject;
+				jndiProperties.put(jndiProps.get("0").render().toString().replace("\"", ""),
+						jndiProps.get("1").render().toString().replace("\"", ""));
+			} else {
+				final ConfigList jndiProps = (ConfigList) jndiPropsObject;
+				jndiProperties.put(jndiProps.get(0).render().toString().replace("\"", ""),
+						jndiProps.get(1).render().toString().replace("\"", ""));
+			}
 		}
 
 		jmsQueueName = config.getString("jms.destination");
