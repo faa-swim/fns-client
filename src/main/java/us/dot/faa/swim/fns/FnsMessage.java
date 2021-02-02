@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 
-import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.JAXBIntrospector;
 import javax.xml.bind.Unmarshaller;
@@ -27,6 +26,8 @@ import aero.aixm.extension.fnse.EventExtensionType;
 import aero.aixm.message.AIXMBasicMessageType;
 import aero.aixm.message.BasicMessageMemberAIXMPropertyType;
 import net.opengis.gml.TimePeriodType;
+import us.dot.faa.swim.fns.aixm.AIXMBasicMessageFeatureCollection;
+import us.dot.faa.swim.fns.aixm.AixmUtilities;
 
 public class FnsMessage {
 	private static final Logger logger = LoggerFactory.getLogger(FnsMessage.class);
@@ -49,22 +50,12 @@ public class FnsMessage {
 
 	private NotamStatus status;
 
-	private static JAXBContext jaxb_FNSNOTAM_Context = null;
-
-	static {
-		try {
-			jaxb_FNSNOTAM_Context = JAXBContext.newInstance(AIXMBasicMessageType.class);
-		} catch (JAXBException e) {
-			logger.error("Failed to created JAXB Context due to: " + e.getMessage(), e);
-		}
-	}
-
 	public FnsMessage(final Long correlationId, final String xmlMessage) throws FnsMessageParseException {
 
 		StringReader reader = new StringReader(xmlMessage.trim());
 		
 		try {
-			final Unmarshaller jaxb_FNSNOTAM_Unmarshaller = jaxb_FNSNOTAM_Context.createUnmarshaller();
+			final Unmarshaller jaxb_FNSNOTAM_Unmarshaller = AixmUtilities.createAixmUnmarshaller();
 	
 			this.correlationId = correlationId;			
 	
@@ -183,7 +174,7 @@ public class FnsMessage {
 		AIXMBasicMessageType fnsAixmMessageType = null;
 		try {
 			fnsAixmMessageType = (AIXMBasicMessageType) JAXBIntrospector
-					.getValue(jaxb_FNSNOTAM_Context.createUnmarshaller().unmarshal(reader));
+					.getValue(AixmUtilities.createAixmUnmarshaller().unmarshal(reader));
 		} catch (JAXBException e) {
 			throw e;
 		} finally {
@@ -196,7 +187,7 @@ public class FnsMessage {
 
 	public static AIXMBasicMessageType createFnsAixmMessage(Node fnsAixmMessage) throws JAXBException {
 		return (AIXMBasicMessageType) JAXBIntrospector
-				.getValue(jaxb_FNSNOTAM_Context.createUnmarshaller().unmarshal(fnsAixmMessage));
+				.getValue(AixmUtilities.createAixmUnmarshaller().unmarshal(fnsAixmMessage));
 
 	}
 	
