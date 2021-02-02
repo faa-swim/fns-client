@@ -1,8 +1,9 @@
 /target/
 /.vscode/
 /.settings/
-/initial_load_aixm_xml.gz
-/Notams.mv.db
-/Notams.mv.db.lock
-/.project
-/.factorypath
+*.gz
+*.db
+*.lock
+*.project
+*.factorypath
+*.log
