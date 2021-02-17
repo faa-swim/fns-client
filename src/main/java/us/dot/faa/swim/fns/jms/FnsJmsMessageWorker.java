@@ -2,12 +2,10 @@ package us.dot.faa.swim.fns.jms;
 
 import java.sql.SQLException;
 import java.time.Instant;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.Queue;
 
 import javax.jms.BytesMessage;
 import javax.jms.Message;
-import javax.jms.MessageListener;
 import javax.jms.TextMessage;
 
 import org.slf4j.Logger;
@@ -16,26 +14,27 @@ import org.slf4j.LoggerFactory;
 import us.dot.faa.swim.fns.FnsMessage;
 import us.dot.faa.swim.fns.FnsMessage.NotamStatus;
 import us.dot.faa.swim.fns.notamdb.NotamDb;
+import us.dot.faa.swim.jms.JmsMessageWorker;
 import us.dot.faa.swim.utilities.MissedMessageTracker;
 
-public class FnsJmsMessageProcessor implements MessageListener {
-	private static final Logger logger = LoggerFactory.getLogger(FnsJmsMessageProcessor.class);
+public class FnsJmsMessageWorker implements JmsMessageWorker {
+	private static final Logger logger = LoggerFactory.getLogger(FnsJmsMessageWorker.class);
 
-	private NotamDb notamDb = null;
+	private NotamDb notamDb;
+	private Queue<FnsMessage> pendingMessageQueue;
 	private MissedMessageTracker missedMessageTracker = null;
-	private final ThreadPoolExecutor executor;
 
-	public FnsJmsMessageProcessor(NotamDb notamDb, int processingThreads) {
+	public FnsJmsMessageWorker(NotamDb notamDb, Queue<FnsMessage> pendingMessageQueue) {
+		this.pendingMessageQueue = pendingMessageQueue;
 		this.notamDb = notamDb;
-		this.executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(processingThreads);
 	}
 
-	public void setMissedMessageTracker(MissedMessageTracker missedMessageTracker) {
+	public void setMissedMessageTracker(MissedMessageTracker missedMessageTracker) {		
 		this.missedMessageTracker = missedMessageTracker;
 	}
 
 	@Override
-	public void onMessage(Message jmsMessage) {
+	public void processesMessage(Message jmsMessage) {
 		try {
 
 			FnsMessage fnsMessage = parseFnsJmsMessage(jmsMessage);
@@ -48,12 +47,18 @@ public class FnsJmsMessageProcessor implements MessageListener {
 				missedMessageTracker.put(fnsMessage.getCorrelationId(), Instant.now());
 			}
 
-			executor.execute(new Runnable() {
-				@Override
-				public void run() {
-					processFnsMessage(fnsMessage);
+			if (!this.notamDb.isValid()) {
+				logger.debug("Pending " + fnsMessage.getStatus() + " NOTAM with FNS_ID:" + fnsMessage.getFNS_ID()
+						+ " and CorrelationId: " + fnsMessage.getCorrelationId() + " due to invalid database.");
+				pendingMessageQueue.add(fnsMessage);
+			} else {
+				try {
+					this.notamDb.putNotam(fnsMessage);
+				} catch (SQLException e) {
+					logger.warn("Failed to insert Notam into Database, setting NotamDb to inValid", e);
+					this.notamDb.setInvalid();
 				}
-			});
+			}
 
 		} catch (Exception e) {
 			logger.error("Failed to processed JMS Text Message due to: " + e.getMessage());
@@ -83,21 +88,5 @@ public class FnsJmsMessageProcessor implements MessageListener {
 
 		return fnsMessage;
 
-	}
-
-	private void processFnsMessage(final FnsMessage fnsMessage) {
-
-		if (!this.notamDb.isValid()) {
-			logger.debug("Pending " + fnsMessage.getStatus() + " NOTAM with FNS_ID:" + fnsMessage.getFNS_ID()
-					+ " and CorrelationId: " + fnsMessage.getCorrelationId() + " due to invalid database.");
-			this.notamDb.pendingMessages.add(fnsMessage);
-		} else {
-			try {
-				this.notamDb.putNotam(fnsMessage);
-			} catch (SQLException e) {
-				logger.warn("Failed to insert Notam into Database, setting NotamDb to inValid", e);
-				this.notamDb.setInvalid();
-			}
-		}
 	}
 }
