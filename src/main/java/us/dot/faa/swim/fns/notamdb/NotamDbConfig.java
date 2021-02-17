@@ -7,7 +7,7 @@ public class NotamDbConfig {
     protected String username = "";
     protected String password = "";
     protected String schema = "PUBLIC";
-    protected String table = "NOTAMS";
+    protected String table = "NOTAMS";    
 
     public String getDriver() {
         return this.driver;
@@ -33,28 +33,34 @@ public class NotamDbConfig {
         return this.table;
     }
 
-    public void setDriver(String driver) {
+    public NotamDbConfig setDriver(String driver) {
         this.driver = driver;
+        return this;
     }
 
-    public void setConnectionUrl(String connectionUrl) {
+    public NotamDbConfig setConnectionUrl(String connectionUrl) {
         this.connectionUrl = connectionUrl;
+        return this;
     }
 
-    public void setUsername(String username) {
+    public NotamDbConfig setUsername(String username) {
         this.username = username;
+        return this;
     }
 
-    public void setPassword(String password) {
+    public NotamDbConfig setPassword(String password) {
         this.password = password;
+        return this;
     }
 
-    public void setSchema(String schema) {
+    public NotamDbConfig setSchema(String schema) {
         this.schema = schema;
+        return this;
     }
 
-    public void setTable(String table) {
+    public NotamDbConfig setTable(String table) {
         this.table = table;
+        return this;
     }
 
 }

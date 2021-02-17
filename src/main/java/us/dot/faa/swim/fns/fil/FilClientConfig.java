@@ -2,7 +2,6 @@ package us.dot.faa.swim.fns.fil;
 
 public class FilClientConfig {
 
-    protected String source = "sftp";
     protected String sftpHost;
     protected int sftpPort = 22;
     protected String sftpUsername;
@@ -15,10 +14,6 @@ public class FilClientConfig {
     protected String filDataFileTimeFormat = "yyyy-MM-dd HH:mm:ss z";
     protected String filFileName = "initial_load_aixm.xml.gz";
     protected String filFileSavePath = null;
-
-    public String getSource() {
-        return this.source;
-    }
 
     public String getSftpHost() {
         return this.sftpHost;
@@ -64,11 +59,6 @@ public class FilClientConfig {
         return this.filFileSavePath;
     }
 
-    public FilClientConfig setFilSource(String source) {
-        this.source = source;
-        return this;
-    }
-
     public FilClientConfig setFilSftpHost(String sftpHost) {
         this.sftpHost = sftpHost;
         return this;
@@ -104,22 +94,22 @@ public class FilClientConfig {
         return this;
     }
     
-    public FilClientConfig getFilDateFileName(String filDateFileName) {
+    public FilClientConfig setFilDateFileName(String filDateFileName) {
         this.filDateFileName = filDateFileName;
         return this;
     }
     
-    public FilClientConfig getFilDataFileTimeFormat(String filDataFileTimeFormat) {
+    public FilClientConfig setFilDataFileTimeFormat(String filDataFileTimeFormat) {
         this.filDataFileTimeFormat = filDataFileTimeFormat;
         return this;
     }
     
-    public FilClientConfig getFilFileName(String filFileName) {
+    public FilClientConfig setFilFileName(String filFileName) {
         this.filFileName = filFileName;
         return this;
     }
     
-    public FilClientConfig getFilFileSavePath(String filFileSavePath) {
+    public FilClientConfig setFilFileSavePath(String filFileSavePath) {
         this.filFileSavePath = filFileSavePath;
         return this;
     }

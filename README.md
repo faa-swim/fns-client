@@ -10,14 +10,14 @@ This repository includes the java source code for the FnsClient which consists o
   - **FnsClient:** Main entry for the application. 
   - **FilClient:** Obtains the FIL file via SFTP.
   - **NotamDb:** Provides all methods to create, put, and query the NOTAM database; supports H2 and PostgreSQL.
-  - **FnsJmsMessageProcessor:** Implementation of a JMS Message Listener used to process FNS Messages received from the SWIM AIM FNS JMS service and load into the NOTAM Database.
+  - **FnsJmsMessageWorker:** Implementation of a JMS Message Worker used to process FNS Messages received from the SWIM AIM FNS JMS service and load into the NOTAM Database.
   - **FnsMessage:** Provides methods to marshal and unmarshal AIXM NOTAMs into a workable java object.
-  - **AIXMBasicMessageFeatureCollection:** Used to create an AIXMBasicMessageFeatureCollection of NOTAMS.
   - **FnsRestApi:** Implementation of a basic REST API to query the NOTAM Database.
 
 ## Prerequisites
 
 A SWIM subscription to the AIM FNS JMS service and credentials to access the AIM FIL service are required to run the FnsClient. These can be obtained via the SWIM Cloud Distribution Service (SCDS) by visiting [scds.faa.gov](https://scds.faa.gov), creating an account, and requesting a subscription for the AIM FNS service. Once the subscription has been approved you will receive an email with instructions on how to request FIL credentials.
+  - Built using JDK 11 and Maven
 
 ## Building and Running
 
@@ -25,9 +25,10 @@ A SWIM subscription to the AIM FNS JMS service and credentials to access the AIM
   2. Run mvn clean package from the fnsClient directory
   3. Change to the target directory; cd target/FnsClient
   4. Modify the fnsClient.conf file and add the SWIM AIM FNS JMS and FIL connection details
+    - FIL Cert needs to be in RSA (aka pem) format; conversion can been done via: ssh-keygen -p -N "" -m pem -f /path/to/key’
   5. Run the FnsClient; java -jar FnsClient.jar
 
-Once the FnsClient has started and initialized, NOTAMS can be queried directly from the NOTAM database, via calling the rest api, or by the web ui.
+Once the FnsClient has started and initialized, NOTAMS can be queried directly from the NOTAM database, via calling the rest api, or by the web ui as localhost:8080
 
 ## Rest API
 
@@ -38,6 +39,4 @@ The FnsClient includes a basic REST API that can be used to query NOTAMS from th
   - Query by Delta Time | wget http://localhost:8080/delta/{YYYY-mm-DD HH:MM:SS}
   - Query by Time Range | wget http://localhost:8080/timerange/{YYYY-mm-DD HH:MM:SS}/{YYYY-mm-DD HH:MM:SS}
   - Query All NOTAMS | wget http://localhost:8080/allNotams
-  
-Responses are limited to 1000 NOTAMS and will require multiple successive calls if more than a 1000 NOTAMS match the query; excluding the Location Designator query. Each response includes a "lastFndId" HTTP header that should be set in each successive request, via HTTP header, to get the next batch of 1000 NOTAMs and so forth.
 

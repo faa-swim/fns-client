@@ -126,8 +126,10 @@
       //trigger AJAX load on "Load Data via AJAX" button click
       document.getElementById("getNotams").addEventListener("click", function () {
         var locationDesignator = $("#locationDesignator").val();
-        table.setData("locationDesignator/" + locationDesignator + "?responseFormat=notamTable");
+        table.setData("notamTable/" + locationDesignator);
       });
+
+      table.clearFilter();
 
       //trigger filter for ALL
       document.getElementById("filterForALL").addEventListener("click", function (o) {

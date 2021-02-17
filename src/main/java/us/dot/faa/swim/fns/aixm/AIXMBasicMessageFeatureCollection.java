@@ -67,7 +67,7 @@ public class AIXMBasicMessageFeatureCollection extends FeatureCollectionType {
 
         for(String aixmNotam : aixmNotamStringList)
         {
-        	fa.getAbstractFeature().add(of.createAIXMBasicMessage(FnsMessage.createFnsAixmMessage(aixmNotam)));  
+        	fa.getAbstractFeature().add(of.createAIXMBasicMessage(AixmUtilities.createFnsAixmMessage(aixmNotam)));  
         }        
 
         fc.setFeatureMembers(fa);

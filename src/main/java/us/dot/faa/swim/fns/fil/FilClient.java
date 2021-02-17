@@ -71,15 +71,14 @@ public class FilClient {
 		}
 	}
 	
-	public InputStream getFnsInitialLoad() throws SftpException, ParseException, InterruptedException, IOException  {
+	public InputStream getFnsInitialLoad(Date refDate) throws SftpException, ParseException, InterruptedException, IOException  {
 		logger.info("Getting most recent FNS Initial Load File from SFTP server");
 		
 		InputStream inputStream_primary_last_date = null;
 		BufferedReader bufferedReader = null;
 
 		try {			
-			// check fil last update and wait for next update then get file
-			final Date refDate = new Date(System.currentTimeMillis());
+			// check fil last update and wait for next update then get file			
 			boolean mostRecentFilFileAvailable = false;
 			SimpleDateFormat formatter = new SimpleDateFormat(this.config.filDataFileTimeFormat);
 			String primary_last_date = "";
@@ -115,17 +114,13 @@ public class FilClient {
 				}
 			}
 
-			if (this.config.filFileSavePath != null) {
+			if (this.config.filFileSavePath != null && !this.config.filFileSavePath.isEmpty()) {
 				filFileLocalPath = this.config.filFileSavePath.concat(this.config.filFileName);
 				sftpChannel.get(this.config.filFileName, filFileLocalPath);
 				return new GZIPInputStream(new FileInputStream(filFileLocalPath));
 			} else {
 				return new GZIPInputStream(sftpChannel.get(this.config.filFileName));
-			}
-			
-			
-			//need to update to that the stream stays open and then call close on the client later
-			
+			}			
 
 		} catch (SftpException | ParseException | InterruptedException | IOException e) {
 			throw e;

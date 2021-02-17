@@ -56,6 +56,11 @@
 			<version>20200518</version>
 		</dependency>
 		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-dbcp2</artifactId>
+			<version>2.8.0</version>
+		</dependency>
+		<dependency>
 			<groupId>com.sparkjava</groupId>
 			<artifactId>spark-core</artifactId>
 			<version>2.9.3</version>
@@ -81,7 +86,7 @@
 		<resources>
 			<resource>
 				<directory>${basedir}/src/main/resources</directory>
-				<targetPath>${basedir}/target/FnsClient</targetPath>
+				<targetPath>${basedir}/target/fns-client</targetPath>
 				<includes>
 					<include>**/**</include>
 				</includes>
@@ -141,7 +146,7 @@
 							<goal>copy-dependencies</goal>
 						</goals>
 						<configuration>
-							<outputDirectory>${project.build.directory}/FnsClient/lib</outputDirectory>
+							<outputDirectory>${project.build.directory}/fns-client/lib</outputDirectory>
 							<overWriteReleases>false</overWriteReleases>
 							<overWriteSnapshots>false</overWriteSnapshots>
 							<overWriteIfNewer>true</overWriteIfNewer>
@@ -165,7 +170,7 @@
 						</manifestEntries>
 					</archive>
 
-					<finalName>FnsClient/FnsClient</finalName>
+					<finalName>fns-client/FnsClient</finalName>
 				</configuration>
 			</plugin>
 		</plugins>

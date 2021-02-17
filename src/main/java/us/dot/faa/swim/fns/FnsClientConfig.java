@@ -24,6 +24,13 @@ public class FnsClientConfig {
     protected int missedMessageTriggerTime = 5; // minutes
     protected int staleMessageTriggerTime = 10; // minutes
 
+    protected int filParserThreadCount = 4;
+    protected int filParserWorkQueueSize = 100;
+    protected int notamDbBatchInsertSize = 100;
+    protected int notamDbInitializationRetryCount = 3;
+    protected boolean removeOldNotams = true;
+    protected int removeOldNotamsFrequency = 24;
+
     protected boolean restApiIsEnabled = true;
     protected int restApiPort = 8080;
 
@@ -36,6 +43,12 @@ public class FnsClientConfig {
         this.filClientConfig.setFilSftpUsername(typeSafeConfig.getString("fil.sftp.username"));
         this.filClientConfig.setFilSftpPort(typeSafeConfig.getInt("fil.sftp.port"));
         this.filClientConfig.setFilSftpCertFilePath(typeSafeConfig.getString("fil.sftp.certFilePath"));
+        this.filClientConfig.setFilFileSavePath(typeSafeConfig.getString("fil.sftp.filFileSavePath"));
+        if (typeSafeConfig.hasPath("fil.filParser")) {
+            this.setFilParserThreadCount(typeSafeConfig.getInt("fil.filParser.maxWorkerThreads"));
+            this.setFilParserMaxWorkQueueSize(typeSafeConfig.getInt("fil.filParser.workQueueSize"));
+            this.setBatchInsertSize(typeSafeConfig.getInt("fil.filParser.batchInsertSize"));
+        }
 
         // set jms config
         this.jmsClientConfig.setInitialContextFactory(typeSafeConfig.getString("jms.initialContextFactory"));
@@ -66,27 +79,35 @@ public class FnsClientConfig {
         }
 
         // set NotamDb Config
-        if(typeSafeConfig.hasPath("notamDb"))
-        {
+        if (typeSafeConfig.hasPath("notamDb")) {
             this.notamDbConfig.setDriver(typeSafeConfig.getString("notamDb.driver"));
             this.notamDbConfig.setConnectionUrl(typeSafeConfig.getString("notamDb.connectionUrl"));
             this.notamDbConfig.setUsername(typeSafeConfig.getString("notamDb.username"));
             this.notamDbConfig.setPassword(typeSafeConfig.getString("notamDb.password"));
             this.notamDbConfig.setSchema(typeSafeConfig.getString("notamDb.schema"));
             this.notamDbConfig.setTable(typeSafeConfig.getString("notamDb.table"));
+            if(typeSafeConfig.hasPath("notamDb.initializationRetryCount"))
+            {
+                this.setNotamDbInitializationRetryCount(typeSafeConfig.getInt("notamDb.initializationRetryCount"));
+            }
+            this.notamDbConfig.setTable(typeSafeConfig.getString("notamDb.table"));
+            if (typeSafeConfig.hasPath("notamDb.removeOldNotams")) {
+                this.setRemoveOldNotams(typeSafeConfig.getBoolean("notamDb.removeOldNotams"));
+                if (this.getRemoveOldNotams() == true && typeSafeConfig.hasPath("notamDb.removeOldNotams.frequency")) {
+                    this.setRemoveOldNotamsFrequency(typeSafeConfig.getInt("notamDb.removeOldNotams.frequency"));
+                }
+            }
         }
-        
+
         // set Missed Message Tracker config
-        if(typeSafeConfig.hasPath("messageTracker"))
-        {
+        if (typeSafeConfig.hasPath("messageTracker")) {
             this.missedMessageTrackerScheduleRate = typeSafeConfig.getInt("messageTracker.scheduleRate");
             this.missedMessageTriggerTime = typeSafeConfig.getInt("messageTracker.missedMessageTriggerTime");
             this.staleMessageTriggerTime = typeSafeConfig.getInt("messageTracker.staleMessageTriggerTime");
         }
 
         // set Rest Api
-        if(typeSafeConfig.hasPath("restapi"))
-        {
+        if (typeSafeConfig.hasPath("restapi")) {
             this.restApiIsEnabled = typeSafeConfig.getBoolean("restapi.enabled");
             this.restApiPort = typeSafeConfig.getInt("restapi.port");
         }
@@ -127,6 +148,30 @@ public class FnsClientConfig {
 
     public int getStaleMessageTriggerTime() {
         return this.staleMessageTriggerTime;
+    }
+
+    public int getFilParserThreadCount() {
+        return this.filParserThreadCount;
+    }
+
+    public int getFilParserMaxWorkQueueSize() {
+        return this.filParserWorkQueueSize;
+    }
+
+    public int getBatchInsertSize() {
+        return this.notamDbBatchInsertSize;
+    }
+
+    public int getNotamDbInitializationRetryCount() {
+        return this.notamDbInitializationRetryCount;
+    }
+
+    public boolean getRemoveOldNotams() {
+        return this.removeOldNotams;
+    }
+
+    public int getRemoveOldNotamsFrequency() {
+        return this.removeOldNotamsFrequency;
     }
 
     public boolean getRestApiIsEnabled() {
@@ -180,6 +225,36 @@ public class FnsClientConfig {
 
     public FnsClientConfig setStaleMessageTriggerTime(int staleMessageTriggerTime) {
         this.staleMessageTriggerTime = staleMessageTriggerTime;
+        return this;
+    }
+
+    public FnsClientConfig setFilParserThreadCount(int threadCount) {
+        this.filParserThreadCount = threadCount;
+        return this;
+    }
+
+    public FnsClientConfig setFilParserMaxWorkQueueSize(int maxWorkQueueSize) {
+        this.filParserWorkQueueSize = maxWorkQueueSize;
+        return this;
+    }
+
+    public FnsClientConfig setBatchInsertSize(int batchInsertSize) {
+        this.notamDbBatchInsertSize = batchInsertSize;
+        return this;
+    }
+
+    public FnsClientConfig setNotamDbInitializationRetryCount(int retryCount) {
+        this.notamDbInitializationRetryCount = retryCount;
+        return this;
+    }
+
+    public FnsClientConfig setRemoveOldNotams(boolean removeOldNotams) {
+        this.removeOldNotams = removeOldNotams;
+        return this;
+    }
+
+    public FnsClientConfig setRemoveOldNotamsFrequency(int frequencyInHours) {
+        this.removeOldNotamsFrequency = frequencyInHours;
         return this;
     }
 

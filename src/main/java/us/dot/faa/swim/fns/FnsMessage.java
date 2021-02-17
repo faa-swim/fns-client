@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.JAXBIntrospector;
+import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
 
 import org.slf4j.Logger;
@@ -157,8 +158,7 @@ public class FnsMessage {
 	}
 
 	private static String marshalToXml(AIXMBasicMessageFeatureCollection messageCollection) {
-		StringWriter sw = new StringWriter();
-		System.out.println("MessageCollection " + messageCollection.getFeatureMember().size());
+		StringWriter sw = new StringWriter();		
 		try {
 			AIXMBasicMessageFeatureCollection.getMarshaller().marshal(messageCollection, sw);
 			return sw.toString();
@@ -166,29 +166,6 @@ public class FnsMessage {
 			logger.error("Error marshaling: " + e.getMessage());
 			return null;
 		}
-	}
-
-	public static AIXMBasicMessageType createFnsAixmMessage(String fnsAixmMessage) throws JAXBException {
-		StringReader reader = new StringReader(fnsAixmMessage);
-
-		AIXMBasicMessageType fnsAixmMessageType = null;
-		try {
-			fnsAixmMessageType = (AIXMBasicMessageType) JAXBIntrospector
-					.getValue(AixmUtilities.createAixmUnmarshaller().unmarshal(reader));
-		} catch (JAXBException e) {
-			throw e;
-		} finally {
-			reader.close();
-		}
-
-		return fnsAixmMessageType;
-
-	}
-
-	public static AIXMBasicMessageType createFnsAixmMessage(Node fnsAixmMessage) throws JAXBException {
-		return (AIXMBasicMessageType) JAXBIntrospector
-				.getValue(AixmUtilities.createAixmUnmarshaller().unmarshal(fnsAixmMessage));
-
 	}
 	
 	@SuppressWarnings("serial")

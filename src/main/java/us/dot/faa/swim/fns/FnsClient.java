@@ -2,14 +2,26 @@ package us.dot.faa.swim.fns;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.ParseException;
+import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
+import java.util.AbstractMap;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Queue;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import javax.jms.ExceptionListener;
@@ -22,32 +34,75 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
-import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.SftpException;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 
+import us.dot.faa.swim.fns.FnsMessage.FnsMessageParseException;
+import us.dot.faa.swim.fns.FnsMessage.NotamStatus;
 import us.dot.faa.swim.fns.fil.FilClient;
-import us.dot.faa.swim.fns.jms.FnsJmsMessageProcessor;
+import us.dot.faa.swim.fns.fil.FilParser;
+import us.dot.faa.swim.fns.fil.FilParserWorker;
+import us.dot.faa.swim.fns.jms.FnsJmsMessageWorker;
 import us.dot.faa.swim.fns.notamdb.NotamDb;
 import us.dot.faa.swim.fns.rest.FnsRestApi;
 import us.dot.faa.swim.jms.JmsClient;
+import us.dot.faa.swim.jms.JmsMessageProcessor;
 import us.dot.faa.swim.utilities.MissedMessageTracker;
 
 public class FnsClient implements ExceptionListener {
 	private static Logger logger = LoggerFactory.getLogger(FnsClient.class);
-	private static FilClient filClient = null;
-	private static JmsClient jmsClient = null;
-	private static NotamDb notamDb = null;
-	private static FnsJmsMessageProcessor fnsJmsMessageProcessor = null;
-	private static MissedMessageTracker missedMessageTracker = null;
-	private static FnsClientConfig fnsClientConfig;
-	private static boolean isRunning;
-	private static Instant lastValidationCheckTime = Instant.now();
+	private final static CountDownLatch latch = new CountDownLatch(1);
 
-	private static MissedMessageTracker createMissedMessagTracker() {
-		return new MissedMessageTracker(fnsClientConfig.getMissedMessageTrackerScheduleRate(),
-				fnsClientConfig.getMissedMessageTriggerTime(), fnsClientConfig.getStaleMessageTriggerTime()) {
+	private final FnsClientConfig config;
+	private final FilClient filClient;
+	private final JmsClient jmsClient;
+	private final FnsJmsMessageWorker fnsJmsMessageWorker;
+	private final NotamDb notamDb;
+	private final Timer removeOldNotamsTimer = new Timer();
+	private final MissedMessageTracker missedMessageTracker;
+
+	private FnsRestApi fnsRestApi;
+	private JmsMessageProcessor fnsJmsProcessor;
+	private boolean missedMessageDuringInitialization = false;
+
+	public Queue<FnsMessage> pendingJmsMessages = new ConcurrentLinkedQueue<FnsMessage>();
+
+	public FnsClient(FnsClientConfig config) throws Exception {
+		this.config = config;
+
+		filClient = new FilClient(config.getFilClientConfig());
+		jmsClient = new JmsClient(config.jmsClientConfig);
+		notamDb = new NotamDb(config.notamDbConfig);
+
+		if (config.removeOldNotams) {
+			final TimerTask removeOldNotamsTimerTask = new TimerTask() {
+
+				@Override
+				public void run() {
+					try {
+						removeOldNotams();
+					} catch (SQLException e) {
+						throw new RuntimeException(e);
+					}
+				}
+			};
+			Timer removeOldNotamsTimer = new Timer(true);
+			long removeNotamScheduleFrequencyInMilliseconds = TimeUnit.MILLISECONDS
+					.convert(config.getRemoveOldNotamsFrequency(), TimeUnit.HOURS);
+			removeOldNotamsTimer.scheduleAtFixedRate(removeOldNotamsTimerTask,
+					removeNotamScheduleFrequencyInMilliseconds, removeNotamScheduleFrequencyInMilliseconds);
+		}
+
+		missedMessageTracker = createMissedMessagTracker();
+		fnsJmsMessageWorker = new FnsJmsMessageWorker(notamDb, pendingJmsMessages);
+		fnsJmsMessageWorker.setMissedMessageTracker(missedMessageTracker);
+
+	}
+
+	private MissedMessageTracker createMissedMessagTracker() {
+		return new MissedMessageTracker(config.getMissedMessageTrackerScheduleRate(),
+				config.getMissedMessageTriggerTime(), config.getStaleMessageTriggerTime()) {
 			@Override
 			public void onMissed(Map<Long, Instant> missedMessages) {
 				String cachedCorellationIds = missedMessages.entrySet().stream()
@@ -58,12 +113,13 @@ public class FnsClient implements ExceptionListener {
 						"Missed Message Identified, setting NotamDb to Invalid and ReInitalizing from FNS Initial Load | Missed Messages "
 								+ cachedCorellationIds);
 
+				this.clearOnlyMissedMessages();
 				try {
 					if (notamDb.isValid()) {
 						notamDb.setInvalid();
 						initalizeNotamDbFromFil();
 					} else if (notamDb.isInitializing()) {
-						notamDb.setMissedMessageDuringInitialization();
+						missedMessageDuringInitialization = true;
 					}
 				} catch (Exception e) {
 					logger.error("Failed to ReInitialize NotamDb due to: " + e.getMessage(), e);
@@ -96,10 +152,12 @@ public class FnsClient implements ExceptionListener {
 
 		while (!jmsConsumerStarted) {
 			try {
-				jmsClient = new JmsClient(fnsClientConfig.getJmsClientConfig());
-				jmsClient.connect(fnsClientConfig.getJmsConnectionFactoryName(), this);
-				jmsClient.createConsumer(fnsClientConfig.getJmsDestination(), fnsJmsMessageProcessor,
-						Session.AUTO_ACKNOWLEDGE);
+				jmsClient.connect(config.getJmsConnectionFactoryName(), this);
+				fnsJmsProcessor = new JmsMessageProcessor(
+						jmsClient.createConsumer(config.getJmsDestination(), Session.CLIENT_ACKNOWLEDGE),
+						config.jmsProcessingThreads, 100, fnsJmsMessageWorker);
+				fnsJmsProcessor.start();
+
 				jmsConsumerStarted = true;
 
 			} catch (final Exception e) {
@@ -114,15 +172,61 @@ public class FnsClient implements ExceptionListener {
 		logger.info("JMS Consumer Started");
 	}
 
-	private static void initalizeNotamDbFromFil() {
+	private void initalizeNotamDbFromFil() throws InterruptedException {
+		missedMessageDuringInitialization = false;
 		logger.info("Initalizing Database");
 		missedMessageTracker.clearOnlyMissedMessages();
+		Date refDate = new Date(System.currentTimeMillis());
 
 		boolean successful = false;
 		while (!successful) {
 			try {
 				filClient.connectToFil();
-				notamDb.initalizeNotamDb(filClient.getFnsInitialLoad());
+
+				if (notamDb.isInitializing()) {
+					return;
+				} else {
+					this.missedMessageDuringInitialization = false;
+					notamDb.setInitializing(true);
+				}
+
+				InputStream filFileInputStream = null;
+
+				try {
+
+					notamDb.dropNotamTable();
+					notamDb.createNotamTable();
+
+					logger.info("Initizliaing NotamDb from FIL File");
+
+					filFileInputStream = filClient.getFnsInitialLoad(refDate);
+					final int notamCount = loadNotams(filFileInputStream);
+
+					if (!this.missedMessageDuringInitialization) {						
+						logger.info("Loaded " + notamCount + " Notams");
+
+						loadQueuedMessages();
+
+						notamDb.setValid();
+						logger.info("NotamDb initalized");						
+					} else {
+						logger.error(
+								"NotamDb initalization failed due to missed message identified during initalization process.");
+						throw new Exception("NotamDb initalization failed");
+					}
+				} catch (SQLException | IOException | SAXException | ParserConfigurationException sqle) {
+					throw sqle;
+				} finally {
+					notamDb.setInitializing(false);
+					try {						
+						if (filFileInputStream != null) {
+							filFileInputStream.close();
+						}
+					} catch (IOException ioe) {
+						logger.error(ioe.getMessage(), ioe);
+					}
+				}
+
 				successful = true;
 			} catch (Exception e) {
 				logger.error("Failed to Initialized NotamDb due to: " + e.getMessage(), e);
@@ -130,6 +234,7 @@ public class FnsClient implements ExceptionListener {
 					Thread.sleep(5000);
 				} catch (InterruptedException e1) {
 					logger.warn("Thread interupded");
+					throw e1;
 				}
 			} finally {
 				filClient.close();
@@ -137,96 +242,168 @@ public class FnsClient implements ExceptionListener {
 		}
 	}
 
-	private boolean validateDatabase() throws Exception {
+	private void loadQueuedMessages() throws SQLException {
+
+		logger.info("Loading " + pendingJmsMessages.size() + " queued notams");
+
+		// update with pending
+		FnsMessage messageToProcesses = pendingJmsMessages.poll();
+
+		while (messageToProcesses != null) {
+			if (notamDb.checkIfNotamIsNewer(messageToProcesses)) {
+				notamDb.putNotam(messageToProcesses);
+			} else {
+				logger.debug("NOTAM with FNS_ID:" + messageToProcesses.getFNS_ID() + " and CorrelationId: "
+						+ messageToProcesses.getCorrelationId() + " and LastUpdateTime: "
+						+ messageToProcesses.getUpdatedTimestamp().toString()
+						+ " discarded due to Notam in database has newer LastUpdateTime");
+			}
+			messageToProcesses = pendingJmsMessages.poll();
+		}
+
+		logger.info("Queued notams loaded");
+
+	}
+
+	private int loadNotams(InputStream inputStream) throws Exception {
+
+		notamDb.setInitializing(true);
+		AtomicInteger notamCount = new AtomicInteger();
+
+		final FilParser parser = new FilParser(config.getFilParserThreadCount(), config.getFilParserMaxWorkQueueSize());
+		parser.parseFilFile(inputStream, new FilParserWorker() {
+
+			@Override
+			public void processesMessage(String aixmMessage) {
+
+				try {
+					final FnsMessage fnsMessage = new FnsMessage((long) -1, aixmMessage);
+					fnsMessage.setStatus(NotamStatus.ACTIVE);
+					notamDb.putNotam(fnsMessage);
+					notamCount.incrementAndGet();
+
+				} catch (FnsMessageParseException | SQLException e) {
+					throw new RuntimeException(e);
+				}
+			}
+		});
+
+		notamDb.setInitializing(false);
+
+		return notamCount.get();
+	}
+
+	public boolean validateNotamDb() throws Exception {
+
+		logger.info("Validating NotamDb");
+		Map<String, Timestamp> missingNotamsMap = new HashMap<String, Timestamp>();
+
 		try {
 			filClient.connectToFil();
 
-			Map<String, Timestamp> missMatchedMap = notamDb.validateDatabase(filClient.getFnsInitialLoad());
-			if (!missMatchedMap.isEmpty()) {
+			logger.info("Generating Validation Map from FIL");
+			final Map<String, Timestamp> filValidationMap = new ConcurrentHashMap<String, Timestamp>();
+			new FilParser(config.filParserThreadCount, config.filParserWorkQueueSize).parseFilFile(
+					filClient.getFnsInitialLoad(new Date(System.currentTimeMillis())), new FilParserWorker() {
 
-				String missMatches = missMatchedMap.keySet().stream().map(key -> key + ":" + missMatchedMap.get(key))
-						.collect(Collectors.joining(", ", "{", "}"));
+						@Override
+						public void processesMessage(String aixmMessage) {
+							try {
+								final FnsMessage fnsMessage = new FnsMessage((long) -1, aixmMessage);
+								filValidationMap.put(String.valueOf(fnsMessage.getFNS_ID()),
+										fnsMessage.getUpdatedTimestamp());
+							} catch (FnsMessageParseException e) {
+								logger.error("Failed to create FnsMessage due to: " + e.getMessage(), e);
+								throw new RuntimeException(e);
+							}
+						}
+					});
+
+			logger.info("Getting Validation Map from NotamDb");
+			Map<String, Timestamp> notamDbValidationMap = notamDb.getValidationMap();
+			for (Map.Entry<String, Timestamp> entry : filValidationMap.entrySet()) {
+				Timestamp dbUpdateTime = notamDbValidationMap.get(entry.getKey());
+				if (dbUpdateTime == null) {
+					missingNotamsMap.put("Missing-" + entry.getKey(), entry.getValue());
+				} else {
+					if (!entry.getValue().equals(dbUpdateTime) && !entry.getValue().before(dbUpdateTime)) {
+						missingNotamsMap.put("Newer-" + entry.getKey(), entry.getValue());
+					}
+				}
+			}
+
+			if (!missingNotamsMap.isEmpty()) {
+
+				logger.warn("NotamDb Validation Failed");
+
+				String missMatches = missingNotamsMap.keySet().stream()
+						.map(key -> key + ":" + missingNotamsMap.get(key)).collect(Collectors.joining(", ", "{", "}"));
 
 				logger.debug("Missing NOTAMs: " + missMatches);
 				return false;
 			} else {
+				logger.info("NotamDb Validation Passed");
 				return true;
 			}
 		} catch (SQLException | ParserConfigurationException | IOException | SAXException | SftpException
 				| ParseException | InterruptedException e) {
 			throw e;
 		} finally {
-			lastValidationCheckTime = Instant.now();
 			filClient.close();
 		}
 	}
 
-	public void start() throws InterruptedException {
+	public void start() throws SQLException, InterruptedException {
 
 		logger.info("Starting FnsClient");
 
-		missedMessageTracker.start();
-		fnsJmsMessageProcessor = new FnsJmsMessageProcessor(notamDb, fnsClientConfig.getJmsProcessingThreads());
-		fnsJmsMessageProcessor.setMissedMessageTracker(missedMessageTracker);
+		boolean notamTableExists = notamDb.notamTableExists();
+		if (!notamTableExists) {
+			notamDb.createNotamTable();
+		}
 
+		AbstractMap.SimpleEntry<Long, Instant> lastCorrelationId = notamDb.getLastCorrelationId();
+		if (lastCorrelationId != null && lastCorrelationId.getKey() > 0
+				&& Duration.between(lastCorrelationId.getValue(), Instant.now())
+						.toMinutes() < config.missedMessageTriggerTime - 1) {
+			notamDb.setValid();
+			missedMessageTracker.setLastRecievedTrackingId(lastCorrelationId.getKey());
+		} else {
+			lastCorrelationId = null;
+		}
+
+		missedMessageTracker.start();
 		connectJmsClient();
 
-		Thread.sleep(30 * 1000);
+		if (lastCorrelationId == null) {
+			logger.info("Recent Correlation Id not found in NotamDb, starting NotamDb initalization from FIL");
+			Thread.sleep(60 * 1000);
 
-		initalizeNotamDbFromFil();
+			initalizeNotamDbFromFil();
 
-		FnsRestApi fnsRestApi = null;
-		if (fnsClientConfig.getRestApiIsEnabled()) {
+		} else {
+			logger.info("Recent Correlation Id Imported from NotamDb, skipping initialization");
+		}
+
+		if (config.getRestApiIsEnabled()) {
 			logger.info("Starting REST API");
-			fnsRestApi = new FnsRestApi(notamDb, fnsClientConfig.getRestApiPort());
+			fnsRestApi = new FnsRestApi(notamDb, config.getRestApiPort());
 		}
 
-		isRunning = true;
+	}
 
-		while (isRunning) {
-			Thread.sleep(15 * 1000);
-			if (notamDb.isValid()) {
-
-				if (lastValidationCheckTime.atZone(ZoneId.systemDefault()).getDayOfWeek() != Instant.now()
-						.atZone(ZoneId.systemDefault()).getDayOfWeek()) {
-
-					logger.info("Performing database validation check against FIL");
-					try {
-
-						if (validateDatabase()) {
-							logger.info("Database validated against FIL");
-						} else {
-							logger.warn("Validation with Notam Database Failed, setting NotamDB to invalid");
-							notamDb.setInvalid();
-						}
-
-					} catch (Exception e) {
-						logger.error("Failed to validate database due to: " + e.getMessage()
-								+ ", setting NotamDB to invalid", e);
-						notamDb.setInvalid();
-					}
-
-					logger.info("Removing old NOTAMS from database");
-					try {
-						int notamsRemoved = notamDb.removeOldNotams();
-						logger.info("Removed " + notamsRemoved + " Notams");
-					} catch (final Exception e) {
-						logger.error(
-								"Failed to remove old notams from database due to: " + e.getMessage() + ", Closing", e);
-					}
-				}
-			} else if (!notamDb.isInitializing()) {
-				initalizeNotamDbFromFil();
-			}
-		}
+	public void stop() {
+		logger.info("Stopping FnsClient");
+		removeOldNotamsTimer.cancel();
 
 		if (jmsClient != null) {
 			logger.info("Destroying JmsClient");
 			try {
 
+				fnsJmsProcessor.stop();
 				jmsClient.close();
 			} catch (final Exception e) {
-				logger.error("Unable to destroy JmsClient due to: " + e.getMessage() + ", Closing", e);
+				logger.error("Unable to destroy JmsClient due to: " + e.getMessage(), e);
 			}
 		}
 
@@ -236,16 +413,23 @@ public class FnsClient implements ExceptionListener {
 		}
 	}
 
-	public void stop() {
-		logger.info("Stopping FnsClient");
-		isRunning = false;
+	public int removeOldNotams() throws SQLException {
+		logger.info("Removing old NOTAMS from database");
+		int notamsRemoved = 0;
+		try {
+			notamsRemoved = notamDb.removeOldNotams();
+			logger.info("Removed " + notamsRemoved + " Notams");
+			return notamsRemoved;
+		} catch (final SQLException e) {
+			throw e;
+		}
 	}
 
 	@Override
 	public void onException(final JMSException e) {
 		logger.error("JmsClient Failure due to : " + e.getMessage() + ". Resarting JmsClient", e);
 		try {
-			jmsClient.close();
+			jmsClient.reInitialize();
 		} catch (final Exception e1) {
 			logger.error(
 					"Failed to JmsClient JmsClient due to : " + e1.getMessage() + ". Continuing with JmsClient Restart",
@@ -255,7 +439,23 @@ public class FnsClient implements ExceptionListener {
 		connectJmsClient();
 	}
 
-	public static void main(final String[] args) throws InterruptedException {
+	private static class ShutdownHook extends Thread {
+
+		final FnsClient fnsClient;
+
+		ShutdownHook(FnsClient fnsClient) {
+			this.fnsClient = fnsClient;
+		}
+
+		@Override
+		public void run() {
+			logger.info("Shutting Down...");
+
+			fnsClient.stop();
+		}
+	}
+
+	public static void main(final String[] args) throws Exception {
 
 		logger.info("Loading FnsClient Config and Initalizing");
 
@@ -267,43 +467,14 @@ public class FnsClient implements ExceptionListener {
 			typeSafeConfig = ConfigFactory.load();
 		}
 
-		fnsClientConfig = new FnsClientConfig(typeSafeConfig);
+		FnsClient fnsClient = new FnsClient(new FnsClientConfig(typeSafeConfig));
+		Runtime.getRuntime().addShutdownHook(new ShutdownHook(fnsClient));
+		fnsClient.start();
 
-		// create FilClient
 		try {
-			filClient = new FilClient(fnsClientConfig.getFilClientConfig());
-		} catch (JSchException e) {
-			logger.error("Failed to initalize FIL Client", e);
-			System.exit(1);
-		}
-
-		// create JmsClient
-		try {
-			jmsClient = new JmsClient(fnsClientConfig.jmsClientConfig);
-		} catch (NamingException e) {
-			logger.error("Failed to create JMS Client", e);
-			System.exit(1);
-		}
-
-		// create NotamDb
-		try {
-			notamDb = new NotamDb(fnsClientConfig.notamDbConfig);
-		} catch (Exception e) {
-			logger.error("Failed to create NotamDB", e);
-			System.exit(1);
-		}
-
-		// create MissedMessageTracker
-		missedMessageTracker = createMissedMessagTracker();
-
-		// start FnsClient
-		final FnsClient fnsClient = new FnsClient();
-		try {
-			fnsClient.start();
+			latch.await();
 		} catch (InterruptedException e) {
-			throw e;
-		} finally {
-			fnsClient.stop();
+			logger.info("Main Thread Interupted, Exiting...");
 		}
 	}
 }

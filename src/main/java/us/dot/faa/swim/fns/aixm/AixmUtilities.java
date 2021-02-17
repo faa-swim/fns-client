@@ -5,6 +5,7 @@ import java.io.StringReader;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.JAXBIntrospector;
+import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
 
 import org.w3c.dom.Node;
@@ -27,6 +28,11 @@ public class AixmUtilities {
     public static Unmarshaller createAixmUnmarshaller() throws JAXBException
     {
         return jaxb_FNSNOTAM_Context.createUnmarshaller();
+    }
+
+	public static Marshaller createAixmMarshaller() throws JAXBException
+    {
+        return jaxb_FNSNOTAM_Context.createMarshaller();
     }
     
     public static AIXMBasicMessageType createFnsAixmMessage(String fnsAixmMessage) throws JAXBException {
