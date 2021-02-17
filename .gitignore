@@ -1,6 +1,9 @@
 /target/
-/.vscode/
-/.settings/
+.vscode/
+.settings/
+./logs
+.classpath
+.project
 *.gz
 *.db
 *.lock
