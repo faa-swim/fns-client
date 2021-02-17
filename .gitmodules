@@ -1,0 +1,9 @@
+[submodule "jms-client"]
+	path = jms-client
+	url = https://github.com/faa-swim/jms-client
+[submodule "swim-utilities"]
+	path = swim-utilities
+	url = https://github.com/faa-swim/swim-utilities
+[submodule "aixm-5.1"]
+	path = aixm-5.1
+	url = https://github.com/faa-swim/aixm-5.1
