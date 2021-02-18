@@ -3,7 +3,7 @@
 
 The System Wide Information Service (SWIM) Federal NOTAM System (FNS) Java Messaging Service (JMS) Reference Implementation (FnsClient) provides an example implementation on how to establish and maintain a local instance of the FNS NOTAM Database through the use of the FNS Initial Load (FIL) and SWIM FNS JMS services. FIL provides all active NOTAMS, via SFTP, that is required to initialize a NOTAM database and the SWIM JMS service provides, via JMS, NOTAM updates to keep the NOTAM database current. FIL also provides for re-initialization of a NOTAM database in the case of JMS service interruption.
 
-![alt text](https://github.com/faa-swim/fns-client/blob/v1.0/FnsClient%20Diagram.png?raw=true)
+![FnsClient Diagram](https://github.com/faa-swim/fns-client/blob/v1.0/FnsClient%20Diagram.png?raw=true)
 
 ## Contents
 
