@@ -25,10 +25,11 @@ A SWIM subscription to the AIM FNS JMS service and credentials to access the AIM
 
   1. Clone this repository including submodules
   	 - git clone --recurse-submodules https://github.com/faa-swim/fns-client
+  	 - cd fns-client
   2. Install submodule dependencies to your local maven repo
-     - mvn clean install /aixm-5.1
-     - mvn clean install /jms-client
-     - mvn clean install /swim-utilities
+     - mvn clean install -f ./aixm-5.1/pom.xml
+     - mvn clean install -f ./jms-client/pom.xml
+     - mvn clean install -f ./swim-utilities/pom.xml
   3. Run mvn clean package
   4. Change to the target directory; cd target/FnsClient
   5. Modify the fnsClient.conf file and add the SWIM AIM FNS JMS and FIL connection details
