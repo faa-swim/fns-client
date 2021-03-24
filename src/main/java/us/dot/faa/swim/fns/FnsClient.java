@@ -208,11 +208,11 @@ public class FnsClient implements ExceptionListener {
 						loadQueuedMessages();
 
 						notamDb.setValid();
-						logger.info("NotamDb initalized");						
+						logger.info("NotamDb initalized");	
+						successful = true;
 					} else {
 						logger.error(
 								"NotamDb initalization failed due to missed message identified during initalization process.");
-						throw new Exception("NotamDb initalization failed");
 					}
 				} catch (SQLException | IOException | SAXException | ParserConfigurationException sqle) {
 					throw sqle;
@@ -226,8 +226,7 @@ public class FnsClient implements ExceptionListener {
 						logger.error(ioe.getMessage(), ioe);
 					}
 				}
-
-				successful = true;
+				
 			} catch (Exception e) {
 				logger.error("Failed to Initialized NotamDb due to: " + e.getMessage(), e);
 				try {
