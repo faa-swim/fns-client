@@ -27,7 +27,6 @@ import java.util.stream.Collectors;
 import javax.jms.ExceptionListener;
 import javax.jms.JMSException;
 import javax.jms.Session;
-import javax.naming.NamingException;
 import javax.xml.parsers.ParserConfigurationException;
 
 import org.slf4j.Logger;
@@ -109,9 +108,7 @@ public class FnsClient implements ExceptionListener {
 						.map(kvp -> kvp.getKey() + ":" + missedMessages.get(kvp.getKey()))
 						.collect(Collectors.joining(", ", "{", "}"));
 
-				logger.warn(
-						"Missed Message Identified, setting NotamDb to Invalid and ReInitalizing from FNS Initial Load | Missed Messages "
-								+ cachedCorellationIds);
+				logger.warn("Missed Message Identified: " + cachedCorellationIds);
 
 				this.clearOnlyMissedMessages();
 				try {
@@ -172,14 +169,16 @@ public class FnsClient implements ExceptionListener {
 		logger.info("JMS Consumer Started");
 	}
 
-	private void initalizeNotamDbFromFil() throws InterruptedException {
-		missedMessageDuringInitialization = false;
+	private void initalizeNotamDbFromFil() throws InterruptedException {		
 		logger.info("Initalizing Database");
-		missedMessageTracker.clearOnlyMissedMessages();
-		Date refDate = new Date(System.currentTimeMillis());
-
 		boolean successful = false;
+		
 		while (!successful) {
+			missedMessageDuringInitialization = false;		
+			missedMessageTracker.clearOnlyMissedMessages();
+			pendingJmsMessages.clear();
+			Date refDate = new Date(System.currentTimeMillis());
+			
 			try {
 				filClient.connectToFil();
 
