@@ -7,6 +7,7 @@ import java.util.Queue;
 import javax.jms.BytesMessage;
 import javax.jms.Message;
 import javax.jms.TextMessage;
+import javax.management.RuntimeErrorException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +35,7 @@ public class FnsJmsMessageWorker implements JmsMessageWorker {
 	}
 
 	@Override
-	public void processesMessage(Message jmsMessage) {
+	public boolean processesMessage(Message jmsMessage) {				
 		try {
 
 			FnsMessage fnsMessage = parseFnsJmsMessage(jmsMessage);
@@ -58,10 +59,12 @@ public class FnsJmsMessageWorker implements JmsMessageWorker {
 					logger.warn("Failed to insert Notam into Database, setting NotamDb to inValid", e);
 					this.notamDb.setInvalid();
 				}
+				return false;
 			}
-
+			return true;
 		} catch (Exception e) {
 			logger.error("Failed to processed JMS Text Message due to: " + e.getMessage());
+			return false;
 		}
 	}
 
