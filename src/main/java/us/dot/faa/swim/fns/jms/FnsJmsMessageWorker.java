@@ -6,8 +6,8 @@ import java.util.Queue;
 
 import javax.jms.BytesMessage;
 import javax.jms.Message;
+import javax.jms.MessageListener;
 import javax.jms.TextMessage;
-import javax.management.RuntimeErrorException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,10 +15,9 @@ import org.slf4j.LoggerFactory;
 import us.dot.faa.swim.fns.FnsMessage;
 import us.dot.faa.swim.fns.FnsMessage.NotamStatus;
 import us.dot.faa.swim.fns.notamdb.NotamDb;
-import us.dot.faa.swim.jms.JmsMessageWorker;
 import us.dot.faa.swim.utilities.MissedMessageTracker;
 
-public class FnsJmsMessageWorker implements JmsMessageWorker {
+public class FnsJmsMessageWorker implements MessageListener {
 	private static final Logger logger = LoggerFactory.getLogger(FnsJmsMessageWorker.class);
 
 	private NotamDb notamDb;
@@ -35,7 +34,7 @@ public class FnsJmsMessageWorker implements JmsMessageWorker {
 	}
 
 	@Override
-	public boolean processesMessage(Message jmsMessage) {				
+	public void onMessage(Message jmsMessage) {
 		try {
 
 			FnsMessage fnsMessage = parseFnsJmsMessage(jmsMessage);
@@ -59,12 +58,10 @@ public class FnsJmsMessageWorker implements JmsMessageWorker {
 					logger.warn("Failed to insert Notam into Database, setting NotamDb to inValid", e);
 					this.notamDb.setInvalid();
 				}
-				return false;
 			}
-			return true;
+
 		} catch (Exception e) {
 			logger.error("Failed to processed JMS Text Message due to: " + e.getMessage());
-			return false;
 		}
 	}
 
