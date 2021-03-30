@@ -45,7 +45,6 @@ import us.dot.faa.swim.fns.jms.FnsJmsMessageWorker;
 import us.dot.faa.swim.fns.notamdb.NotamDb;
 import us.dot.faa.swim.fns.rest.FnsRestApi;
 import us.dot.faa.swim.jms.JmsClient;
-import us.dot.faa.swim.jms.JmsMessageProcessor;
 import us.dot.faa.swim.utilities.MissedMessageTracker;
 
 public class FnsClient implements ExceptionListener {
@@ -61,7 +60,6 @@ public class FnsClient implements ExceptionListener {
 	private final MissedMessageTracker missedMessageTracker;
 
 	private FnsRestApi fnsRestApi;
-	private JmsMessageProcessor fnsJmsProcessor;
 	private boolean missedMessageDuringInitialization = false;
 
 	public Queue<FnsMessage> pendingJmsMessages = new ConcurrentLinkedQueue<FnsMessage>();
@@ -166,14 +164,13 @@ public class FnsClient implements ExceptionListener {
 		logger.info("JMS Consumer Started");
 	}
 
-	private void initalizeNotamDbFromFil() throws InterruptedException {
-		missedMessageDuringInitialization = false;
-		logger.info("Initalizing Database");
-		missedMessageTracker.clearOnlyMissedMessages();
-		Date refDate = new Date(System.currentTimeMillis());
-
+	private void initalizeNotamDbFromFil() {		
 		boolean successful = false;
 		while (!successful) {
+			missedMessageDuringInitialization = false;
+			logger.info("Initalizing Database");
+			missedMessageTracker.clearAllMessages();
+			Date refDate = new Date(System.currentTimeMillis());
 			try {
 				filClient.connectToFil();
 
@@ -202,14 +199,13 @@ public class FnsClient implements ExceptionListener {
 						loadQueuedMessages();
 
 						notamDb.setValid();
-						logger.info("NotamDb initalized");						
+						logger.info("NotamDb initalized");	
+						successful = true;
 					} else {
-						logger.error(
-								"NotamDb initalization failed due to missed message identified during initalization process.");
-						throw new Exception("NotamDb initalization failed");
+						logger.error("NotamDb initalization failed due to missed message identified during initalization process.");						
 					}
 				} catch (SQLException | IOException | SAXException | ParserConfigurationException sqle) {
-					throw sqle;
+					logger.error("NotamDb initalization failed due to:" + sqle);	
 				} finally {
 					notamDb.setInitializing(false);
 					try {						
@@ -219,16 +215,13 @@ public class FnsClient implements ExceptionListener {
 					} catch (IOException ioe) {
 						logger.error(ioe.getMessage(), ioe);
 					}
-				}
-
-				successful = true;
+				}				
 			} catch (Exception e) {
 				logger.error("Failed to Initialized NotamDb due to: " + e.getMessage(), e);
 				try {
 					Thread.sleep(5000);
 				} catch (InterruptedException e1) {
-					logger.warn("Thread interupded");
-					throw e1;
+					logger.warn("Thread interupded");					
 				}
 			} finally {
 				filClient.close();
@@ -393,8 +386,6 @@ public class FnsClient implements ExceptionListener {
 		if (jmsClient != null) {
 			logger.info("Destroying JmsClient");
 			try {
-
-				fnsJmsProcessor.stop();
 				jmsClient.close();
 			} catch (final Exception e) {
 				logger.error("Unable to destroy JmsClient due to: " + e.getMessage(), e);
