@@ -26,7 +26,6 @@ import java.util.stream.Collectors;
 
 import javax.jms.ExceptionListener;
 import javax.jms.JMSException;
-import javax.jms.Session;
 import javax.xml.parsers.ParserConfigurationException;
 
 import org.slf4j.Logger;
@@ -108,7 +107,9 @@ public class FnsClient implements ExceptionListener {
 						.map(kvp -> kvp.getKey() + ":" + missedMessages.get(kvp.getKey()))
 						.collect(Collectors.joining(", ", "{", "}"));
 
-				logger.warn("Missed Message Identified: " + cachedCorellationIds);
+				logger.warn(
+						"Missed Message Identified, setting NotamDb to Invalid and ReInitalizing from FNS Initial Load | Missed Messages "
+								+ cachedCorellationIds);
 
 				this.clearOnlyMissedMessages();
 				try {
@@ -150,11 +151,7 @@ public class FnsClient implements ExceptionListener {
 		while (!jmsConsumerStarted) {
 			try {
 				jmsClient.connect(config.getJmsConnectionFactoryName(), this);
-				fnsJmsProcessor = new JmsMessageProcessor(
-						jmsClient.createConsumer(config.getJmsDestination(), Session.CLIENT_ACKNOWLEDGE),
-						config.jmsProcessingThreads, 100, fnsJmsMessageWorker);
-				fnsJmsProcessor.start();
-
+				jmsClient.createConsumer(config.getJmsDestination()).setMessageListener(fnsJmsMessageWorker);
 				jmsConsumerStarted = true;
 
 			} catch (final Exception e) {
@@ -169,16 +166,14 @@ public class FnsClient implements ExceptionListener {
 		logger.info("JMS Consumer Started");
 	}
 
-	private void initalizeNotamDbFromFil() throws InterruptedException {		
+	private void initalizeNotamDbFromFil() throws InterruptedException {
+		missedMessageDuringInitialization = false;
 		logger.info("Initalizing Database");
+		missedMessageTracker.clearOnlyMissedMessages();
+		Date refDate = new Date(System.currentTimeMillis());
+
 		boolean successful = false;
-		
 		while (!successful) {
-			missedMessageDuringInitialization = false;		
-			missedMessageTracker.clearOnlyMissedMessages();
-			pendingJmsMessages.clear();
-			Date refDate = new Date(System.currentTimeMillis());
-			
 			try {
 				filClient.connectToFil();
 
@@ -207,11 +202,11 @@ public class FnsClient implements ExceptionListener {
 						loadQueuedMessages();
 
 						notamDb.setValid();
-						logger.info("NotamDb initalized");	
-						successful = true;
+						logger.info("NotamDb initalized");						
 					} else {
 						logger.error(
 								"NotamDb initalization failed due to missed message identified during initalization process.");
+						throw new Exception("NotamDb initalization failed");
 					}
 				} catch (SQLException | IOException | SAXException | ParserConfigurationException sqle) {
 					throw sqle;
@@ -225,7 +220,8 @@ public class FnsClient implements ExceptionListener {
 						logger.error(ioe.getMessage(), ioe);
 					}
 				}
-				
+
+				successful = true;
 			} catch (Exception e) {
 				logger.error("Failed to Initialized NotamDb due to: " + e.getMessage(), e);
 				try {
