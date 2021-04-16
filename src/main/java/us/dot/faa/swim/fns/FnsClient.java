@@ -383,7 +383,11 @@ public class FnsClient implements ExceptionListener {
 	public void stop() {
 		logger.info("Stopping FnsClient");
 		removeOldNotamsTimer.cancel();
-
+		
+		if(missedMessageTracker != null){
+			missedMessageTracker.stop();
+		}
+		
 		if (jmsClient != null) {
 			logger.info("Destroying JmsClient");
 			try {
