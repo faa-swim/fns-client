@@ -18,7 +18,7 @@ This repository includes the java source code for the FnsClient which consists o
 
 ## Prerequisites
 
-A SWIM subscription to the AIM FNS JMS service and credentials to access the AIM FIL service are required to run the FnsClient. These can be obtained via the SWIM Cloud Distribution Service (SCDS) by visiting [scds.faa.gov](https://scds.faa.gov), creating an account, and requesting a subscription for the AIM FNS service. Once the subscription has been approved you will receive an email with instructions on how to request FIL credentials.
+A SWIM subscription to the AIM FNS JMS service and credentials to access the AIM FIL service are required to run the FnsClient. These can be obtained via the SWIM Cloud Distribution Service (SCDS) by visiting [scds.faa.gov](https://scds.faa.gov), creating an account, and requesting a subscription for the AIM FNS service. In order for the FnsClient to run properly it is necessary to set up an AIM FNS subscription that receives all messages - any filters limiting which messages are received will cause the FnsClient to falsely identify missed messages. Once the subscription has been approved you will receive an email with instructions on how to request FIL credentials.
   - Built using JDK 11 and Maven
 
 ## Building and Running
