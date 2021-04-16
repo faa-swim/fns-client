@@ -105,21 +105,22 @@ public class FnsClient implements ExceptionListener {
 						.map(kvp -> kvp.getKey() + ":" + missedMessages.get(kvp.getKey()))
 						.collect(Collectors.joining(", ", "{", "}"));
 
-				logger.warn(
-						"Missed Message Identified, setting NotamDb to Invalid and ReInitalizing from FNS Initial Load | Missed Messages "
-								+ cachedCorellationIds);
+				logger.warn("Missed Message(s) Identified | Missed Messages " + cachedCorellationIds);
 
 				this.clearOnlyMissedMessages();
-				try {
-					if (notamDb.isValid()) {
+				
+				if (notamDb.isValid()) {
+					try {
+						logger.info("Setting NotamDb to Invalid and ReInitalizing from FNS Initial Load");
 						notamDb.setInvalid();
 						initalizeNotamDbFromFil();
-					} else if (notamDb.isInitializing()) {
-						missedMessageDuringInitialization = true;
+					} catch (Exception e) {
+						logger.error("Failed to ReInitialize NotamDb due to: " + e.getMessage(), e);
 					}
-				} catch (Exception e) {
-					logger.error("Failed to ReInitialize NotamDb due to: " + e.getMessage(), e);
+				} else if (notamDb.isInitializing()) {
+					missedMessageDuringInitialization = true;
 				}
+				
 			}
 
 			@Override
@@ -167,7 +168,6 @@ public class FnsClient implements ExceptionListener {
 	private void initalizeNotamDbFromFil() {		
 		boolean successful = false;
 		while (!successful) {
-			missedMessageDuringInitialization = false;
 			logger.info("Initalizing Database");
 			missedMessageTracker.clearAllMessages();
 			Date refDate = new Date(System.currentTimeMillis());
@@ -202,7 +202,8 @@ public class FnsClient implements ExceptionListener {
 						logger.info("NotamDb initalized");	
 						successful = true;
 					} else {
-						logger.error("NotamDb initalization failed due to missed message identified during initalization process.");						
+						pendingJmsMessages.clear();
+						logger.error("NotamDb initalization failed due to missed message identified during initalization process.");							
 					}
 				} catch (SQLException | IOException | SAXException | ParserConfigurationException sqle) {
 					logger.error("NotamDb initalization failed due to:" + sqle);	
