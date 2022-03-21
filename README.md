@@ -11,7 +11,7 @@ This repository includes the java source code for the FnsClient which consists o
 
   - **FnsClient:** Main entry for the application. 
   - **FilClient:** Obtains the FIL file via SFTP.
-  - **NotamDb:** Provides all methods to create, put, and query the NOTAM database; supports H2 and PostgreSQL.
+  - **NotamDb:** Provides all methods to create, put, and query the NOTAM database; supports PostgreSQL and prototype H2 db. Recommend use of Postgresql DB.
   - **FnsJmsMessageWorker:** Implementation of a JMS Message Worker used to process FNS Messages received from the SWIM AIM FNS JMS service and load into the NOTAM Database.
   - **FnsMessage:** Provides methods to marshal and unmarshal AIXM NOTAMs into a workable java object.
   - **FnsRestApi:** Implementation of a basic REST API to query the NOTAM Database.
@@ -36,11 +36,15 @@ A SWIM subscription to the AIM FNS JMS service and credentials to access the AIM
     - FIL Cert needs to be in RSA (aka pem) format; conversion can been done via: ssh-keygen -p -N "" -m pem -f /path/to/key’
   6. Run the FnsClient; java -jar FnsClient.jar
 
+
+
+## Rest API - Prototype 
+
 Once the FnsClient has started and initialized, NOTAMS can be queried directly from the NOTAM database, via calling the rest api, or by the web ui as localhost:8080
 
-## Rest API
+There is an initial REST API implementation - but it is not fully functional.
 
-The FnsClient includes a basic REST API that can be used to query NOTAMS from the database. The API includes the following methods:
+The target REST API includes the following web services - but again requires some javascript code modifications to run properly:
 
   - Query by Location Designator; e.g. ATL | wget http://localhost:8080/locationDesignator/{id}
   - Query by Classification; e.g. DOM | wget http://localhost:8080/classification/{classification}
