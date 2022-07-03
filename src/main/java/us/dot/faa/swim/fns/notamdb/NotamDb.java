@@ -334,7 +334,7 @@ public class NotamDb {
 
 		// update if exists
 		putNotamPreparedStatement.setLong(14, fnsMessage.getCorrelationId());
-		putNotamPreparedStatement.setTimestamp(15, new Timestamp(System.currentTimeMillis()));
+		putNotamPreparedStatement.setTimestamp(15, fnsMessage.getUpdatedTimestamp());
 		putNotamPreparedStatement.setTimestamp(16, fnsMessage.getValidFromTimestamp());
 		putNotamPreparedStatement.setTimestamp(17, fnsMessage.getValidToTimestamp());
 		putNotamPreparedStatement.setString(18, fnsMessage.getClassification());
@@ -396,7 +396,8 @@ public class NotamDb {
 		final Connection conn = getDBConnection();
 		PreparedStatement putMessagePreparedStatement;
 		try {
-			putMessagePreparedStatement = conn.prepareStatement("DELETE FROM NOTAMS WHERE validtotimestamp < NOW()");
+			putMessagePreparedStatement = conn.prepareStatement(
+					"DELETE FROM NOTAMS WHERE validtotimestamp AT TIME ZONE 'UTC' < NOW()");
 			int recordsDeleted = putMessagePreparedStatement.executeUpdate();
 
 			putMessagePreparedStatement = conn.prepareStatement("DELETE FROM NOTAMS WHERE status != 'ACTIVE'");
