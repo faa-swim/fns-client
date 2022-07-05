@@ -238,14 +238,7 @@ public class FnsClient implements ExceptionListener {
 		FnsMessage messageToProcesses = pendingJmsMessages.poll();
 
 		while (messageToProcesses != null) {
-			if (notamDb.checkIfNotamIsNewer(messageToProcesses)) {
-				notamDb.putNotam(messageToProcesses);
-			} else {
-				logger.debug("NOTAM with FNS_ID:" + messageToProcesses.getFNS_ID() + " and CorrelationId: "
-						+ messageToProcesses.getCorrelationId() + " and LastUpdateTime: "
-						+ messageToProcesses.getUpdatedTimestamp().toString()
-						+ " discarded due to Notam in database has newer LastUpdateTime");
-			}
+			notamDb.putNotam(messageToProcesses);
 			messageToProcesses = pendingJmsMessages.poll();
 		}
 
