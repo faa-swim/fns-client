@@ -92,7 +92,7 @@ public class FnsClientConfig {
             }
             this.notamDbConfig.setTable(typeSafeConfig.getString("notamDb.table"));
             if (typeSafeConfig.hasPath("notamDb.removeOldNotams")) {
-                this.setRemoveOldNotams(typeSafeConfig.getBoolean("notamDb.removeOldNotams"));
+                this.setRemoveOldNotams(typeSafeConfig.getBoolean("notamDb.removeOldNotams.enabled"));
                 if (this.getRemoveOldNotams() == true && typeSafeConfig.hasPath("notamDb.removeOldNotams.frequency")) {
                     this.setRemoveOldNotamsFrequency(typeSafeConfig.getInt("notamDb.removeOldNotams.frequency"));
                 }
