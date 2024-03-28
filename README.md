@@ -31,7 +31,7 @@ A SWIM subscription to the AIM FNS JMS service and credentials to access the AIM
      - mvn clean install -f ./jms-client/pom.xml
      - mvn clean install -f ./swim-utilities/pom.xml
   3. Run mvn clean package
-  4. Change to the target directory; cd target/FnsClient
+  4. Change to the target directory; cd target/fns-client
   5. Modify the fnsClient.conf file and add the SWIM AIM FNS JMS and FIL connection details
     - FIL Cert needs to be in RSA (aka pem) format; conversion can been done via: ssh-keygen -p -N "" -m pem -f /path/to/key’
   6. Run the FnsClient; java -jar FnsClient.jar
